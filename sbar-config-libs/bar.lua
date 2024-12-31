@@ -1,4 +1,4 @@
-local colors = require("colors")
+local colors = require("sbar-config-libs/colors")
 
 -- Equivalent to the --bar domain
 sbar.bar({
@@ -9,6 +9,6 @@ sbar.bar({
   sticky = true,
   padding_right = 10,
   padding_left = 10,
-  blur_radius=20,
-  topmost="window",
+  blur_radius = 20,
+  topmost = "window",
 })

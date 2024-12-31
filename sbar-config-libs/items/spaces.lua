@@ -1,4 +1,4 @@
-local colors = require("colors")
+local colors = require("sbar-config-libs/colors")
 
 local function mouse_click(env)
   if env.BUTTON == "right" then
@@ -51,8 +51,8 @@ sbar.add("bracket", spaces, {
 })
 
 local space_creator = sbar.add("item", {
-  padding_left=10,
-  padding_right=8,
+  padding_left = 10,
+  padding_right = 8,
   icon = {
     string = "􀆊",
     font = {

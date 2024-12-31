@@ -1,5 +1,5 @@
-local colors = require("colors")
-local icons = require("icons")
+local colors = require("sbar-config-libs/colors")
+local icons = require("sbar-config-libs/icons")
 
 local volume_slider = sbar.add("slider", 100, {
   position = "right",
@@ -14,7 +14,7 @@ local volume_slider = sbar.add("slider", 100, {
       corner_radius = 3,
       color = colors.bg2,
     },
-    knob= {
+    knob = {
       string = "􀀁",
       drawing = false,
     },
@@ -66,7 +66,7 @@ end)
 
 local function animate_slider_width(width)
   sbar.animate("tanh", 30.0, function()
-    volume_slider:set({ slider = { width = width }})
+    volume_slider:set({ slider = { width = width } })
   end)
 end
 

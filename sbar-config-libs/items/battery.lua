@@ -1,4 +1,4 @@
-local icons = require("icons")
+local icons = require("sbar-config-libs/icons")
 
 local battery = sbar.add("item", {
   position = "right",
@@ -42,4 +42,4 @@ local function battery_update()
 end
 
 
-battery:subscribe({"routine", "power_source_change", "system_woke"}, battery_update)
+battery:subscribe({ "routine", "power_source_change", "system_woke" }, battery_update)

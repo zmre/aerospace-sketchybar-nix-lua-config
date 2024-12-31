@@ -18,12 +18,6 @@
         config = {allowUnfree = true;};
         overlays = [];
       };
-      # dependencies = [
-      # pkgs.lua5_4
-      # ];
-      # mynewlib = pkgs.toLuaModule ( pkgs.mkDerivation { /* ... */ });
-      # or pkgs.buildLuaPackage
-      # You can see a few examples at pkgs/top-level/lua-packages.nix
       sbar = pkgs.lua54Packages.buildLuaPackage {
         name = "sbar";
         pname = "sbar";
@@ -41,23 +35,32 @@
           ]);
       };
       sbar-config-libs = pkgs.stdenv.mkDerivation {
-        pname = "my-lua-module";
+        pname = "sbar-config-libs";
         version = "1.0.0";
 
-        src = ./sbar-config-libs;
+        src = ./.;
 
         buildInputs = [pkgs.lua5_4];
 
         # Install Lua files to the correct directory
         installPhase = ''
           mkdir -p $out/share/lua/5.4/sbar-config-libs
-          cp -r sbar-config-libs/* $out/share/lua/5.4/sbar-config-libs
+          cp -r sbar-config-libs $out/share/lua/5.4/
         '';
       };
 
+      # I thought using the lua with stuff would add those things to the path and cpath, but I must be doing something wrong :(
       l = pkgs.lua5_4.withPackages (ps: with ps; [luafilesystem sbar sbar-config-libs]);
       rc = pkgs.writeScript "sketchybarrc" ''
         #!${l}/bin/lua
+
+        print("Lua package path:")
+        print(package.path)
+        print("Lua package cpath:")
+        print(package.cpath)
+
+        package.path = package.path .. ";${sbar-config-libs}/share/lua/5.4/?.lua;${sbar-config-libs}/share/lua/5.4/?/init.lua"
+        package.cpath = package.cpath .. ";${sbar}/lib/lua/5.4/?.so"
 
         -- Require the sketchybar module (sbar above) from https://github.com/FelixKratz/SbarLua/
         sbar = require("sketchybar")
@@ -78,7 +81,7 @@
       packages.sketchybar-config = rc;
       packages.default = packages.sketchybar-config;
       devShell = pkgs.mkShell {
-        buildInputs = [l rc pkgs.sketchybar];
+        buildInputs = [l pkgs.sketchybar];
       };
     });
 }

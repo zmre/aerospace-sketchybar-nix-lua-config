@@ -1,5 +1,5 @@
-local icons = require("icons")
-local colors = require("colors")
+local icons = require("sbar-config-libs/icons")
+local colors = require("sbar-config-libs/colors")
 
 local popup_toggle = "sketchybar --set $NAME popup.drawing=toggle"
 
@@ -18,7 +18,7 @@ local apple_logo = sbar.add("item", {
     drawing = false,
   },
   popup = {
-    height=35
+    height = 35
   }
 })
 
@@ -30,5 +30,5 @@ local apple_prefs = sbar.add("item", {
 
 apple_prefs:subscribe("mouse.clicked", function(_)
   sbar.exec("open -a 'System Preferences'")
-  apple_logo:set({ popup = { drawing = false } } )
+  apple_logo:set({ popup = { drawing = false } })
 end)

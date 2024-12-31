@@ -1,5 +1,5 @@
-local settings = require("settings")
-local colors = require("colors")
+local settings = require("sbar-config-libs/settings")
+local colors = require("sbar-config-libs/colors")
 
 -- Equivalent to the --default domain
 sbar.default({
@@ -42,4 +42,3 @@ sbar.default({
   padding_left = 5,
   padding_right = 5
 })
-

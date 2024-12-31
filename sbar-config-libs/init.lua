@@ -1,3 +1,3 @@
-require("bar")
-require("default")
-require("items")
+require("sbar-config-libs/bar")
+require("sbar-config-libs/default")
+require("sbar-config-libs/items")

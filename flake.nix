@@ -40,7 +40,7 @@
 
         src = ./.;
 
-        buildInputs = [pkgs.lua5_4];
+        buildInputs = [];
 
         # Install Lua files to the correct directory
         installPhase = ''
@@ -49,18 +49,16 @@
         '';
       };
 
-      # I thought using the lua with stuff would add those things to the path and cpath, but I must be doing something wrong :(
+      # I thought using the lua withPackages stuff would add those things to the path and cpath, but I must be doing something wrong :(
       l = pkgs.lua5_4.withPackages (ps: with ps; [luafilesystem sbar sbar-config-libs]);
       rc = pkgs.writeScript "sketchybarrc" ''
         #!${l}/bin/lua
 
-        print("Lua package path:")
-        print(package.path)
-        print("Lua package cpath:")
-        print(package.cpath)
-
         package.path = package.path .. ";${sbar-config-libs}/share/lua/5.4/?.lua;${sbar-config-libs}/share/lua/5.4/?/init.lua"
-        package.cpath = package.cpath .. ";${sbar}/lib/lua/5.4/?.so"
+
+        base_dir = "${sbar-config-libs}/share/lua/5.4/sbar-config-libs"
+
+        -- package.cpath = package.cpath .. ";${sbar}/lib/lua/5.4/?.so"
 
         -- Require the sketchybar module (sbar above) from https://github.com/FelixKratz/SbarLua/
         sbar = require("sketchybar")
@@ -69,9 +67,15 @@
         -- This improves startup times drastically, try removing both the begin and end
         -- config calls to see the difference -- yeah..
         sbar.begin_config()
+        print("begin_config now about to load helpers")
+        require("sbar-config-libs/helpers")
+        print("helpers done now about to load init")
         require("sbar-config-libs/init")
+        print("init done")
         sbar.hotload(true)
         sbar.end_config()
+
+        print("Starting event loop")
 
         -- Run the event loop of the sketchybar module (without this there will be no
         -- callback functions executed in the lua module)

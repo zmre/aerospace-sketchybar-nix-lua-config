@@ -5,6 +5,8 @@
     flake-utils.url = "github:numtide/flake-utils";
     sbarlua.url = "github:FelixKratz/SbarLua";
     sbarlua.flake = false;
+    promise-lua.url = "github:pyericz/promise-lua";
+    promise-lua.flake = false;
   };
   outputs = inputs @ {
     self,
@@ -18,6 +20,7 @@
         config = {allowUnfree = true;};
         overlays = [];
       };
+      # This is the interface to sketchybar for lua
       sbar = pkgs.lua54Packages.buildLuaPackage {
         name = "sbar";
         pname = "sbar";
@@ -34,13 +37,28 @@
             CoreFoundation
           ]);
       };
+      # These sketchybar lua configs are littered with nested callbacks; I'd rather
+      # be able to sequence things or to collect values from several shell calls
+      # and then move forward using promises, but none seem to exist in stock lua
+      # or in nixpkgs. :-(
+      promise-lua = pkgs.lua54Packages.buildLuarocksPackage {
+        pname = "promise-lua";
+        src = inputs.promise-lua;
+        version = "0.4.1-1";
+        knownRockspec =
+          (pkgs.fetchurl {
+            url = "https://luarocks.org/manifests/pyericz/promise-lua-0.4.1-1.rockspec";
+            sha256 = "sha256-P/HP015RE/GUfarez/ezMuOflhXYPRTwbPdmz5J6qGE=";
+          })
+          .outPath;
+      };
       sbar-config-libs = pkgs.stdenv.mkDerivation {
         pname = "sbar-config-libs";
         version = "1.0.0";
 
         src = ./.;
 
-        buildInputs = [];
+        buildInputs = with pkgs; [sketchybar sketchybar-app-font];
 
         # Install Lua files to the correct directory
         installPhase = ''
@@ -50,7 +68,7 @@
       };
 
       # I thought using the lua withPackages stuff would add those things to the path and cpath, but I must be doing something wrong :(
-      l = pkgs.lua5_4.withPackages (ps: with ps; [luafilesystem sbar sbar-config-libs]);
+      l = pkgs.lua5_4.withPackages (ps: with ps; [luafilesystem sbar sbar-config-libs promise-lua]);
       rc = pkgs.writeScript "sketchybarrc" ''
         #!${l}/bin/lua
 
@@ -58,28 +76,7 @@
 
         base_dir = "${sbar-config-libs}/share/lua/5.4/sbar-config-libs"
 
-        -- package.cpath = package.cpath .. ";${sbar}/lib/lua/5.4/?.so"
-
-        -- Require the sketchybar module (sbar above) from https://github.com/FelixKratz/SbarLua/
-        sbar = require("sketchybar")
-
-        -- Bundle the entire initial configuration into a single message to sketchybar
-        -- This improves startup times drastically, try removing both the begin and end
-        -- config calls to see the difference -- yeah..
-        sbar.begin_config()
-        print("begin_config now about to load helpers")
-        require("sbar-config-libs/helpers")
-        print("helpers done now about to load init")
         require("sbar-config-libs/init")
-        print("init done")
-        sbar.hotload(true)
-        sbar.end_config()
-
-        print("Starting event loop")
-
-        -- Run the event loop of the sketchybar module (without this there will be no
-        -- callback functions executed in the lua module)
-        sbar.event_loop()
       '';
     in rec {
       packages.sketchybar-config = rc;

@@ -34,10 +34,27 @@
         "type": "github"
       }
     },
+    "promise-lua": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1603853302,
+        "narHash": "sha256-LNNLTAAEPIalRSjC6z8QTkhnmwpFAHSlwxuFxb9r2OE=",
+        "owner": "pyericz",
+        "repo": "promise-lua",
+        "rev": "20d2ab1bb6aa398fe06ba597c943077a72c22451",
+        "type": "github"
+      },
+      "original": {
+        "owner": "pyericz",
+        "repo": "promise-lua",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",
+        "promise-lua": "promise-lua",
         "sbarlua": "sbarlua"
       }
     },

@@ -29,7 +29,7 @@ local cal = sbar.add("item", {
     border_color = colors.black,
     border_width = 1
   },
-  click_script = "open -a 'Calendar'"
+  click_script = "open -a 'Fantastical'"
 })
 
 -- Double border for calendar using a single item bracket

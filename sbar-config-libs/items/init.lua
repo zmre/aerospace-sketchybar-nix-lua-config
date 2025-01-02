@@ -1,6 +1,6 @@
 require("sbar-config-libs/items.apple")
 require("sbar-config-libs/items.menus")
-require("sbar-config-libs/items.spaces")
+require("sbar-config-libs/items.aerospaces")
 require("sbar-config-libs/items.front_app")
 require("sbar-config-libs/items.calendar")
 require("sbar-config-libs/items.widgets")

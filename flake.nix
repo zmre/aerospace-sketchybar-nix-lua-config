@@ -1,5 +1,5 @@
 {
-  description = "A config for sketchybar that's reproducible and performant";
+  description = "A config for aerospace and sketchybar that's reproducible and performant";
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
@@ -37,6 +37,7 @@
             CoreFoundation
           ]);
       };
+
       # These sketchybar lua configs are littered with nested callbacks; I'd rather
       # be able to sequence things or to collect values from several shell calls
       # and then move forward using promises, but none seem to exist in stock lua
@@ -58,7 +59,7 @@
 
         src = ./.;
 
-        buildInputs = with pkgs; [sketchybar sketchybar-app-font];
+        buildInputs = [];
 
         # Install Lua files to the correct directory
         installPhase = ''
@@ -69,7 +70,7 @@
 
       # I thought using the lua withPackages stuff would add those things to the path and cpath, but I must be doing something wrong :(
       l = pkgs.lua5_4.withPackages (ps: with ps; [luafilesystem sbar sbar-config-libs promise-lua]);
-      rc = pkgs.writeScript "sketchybarrc" ''
+      sketchybar-config = pkgs.writeScript "sketchybarrc" ''
         #!${l}/bin/lua
 
         package.path = package.path .. ";${sbar-config-libs}/share/lua/5.4/?.lua;${sbar-config-libs}/share/lua/5.4/?/init.lua"
@@ -78,11 +79,36 @@
 
         require("sbar-config-libs/init")
       '';
+      aerospace-config = pkgs.writeTextFile {
+        name = "aerospace.toml";
+        destination = "/aerospace/aerospace.toml";
+        text = builtins.replaceStrings ["NIXPATHTOSKETCHYCONFIG"] ["${sketchybar-config}"] (pkgs.lib.readFile ./aerospace.toml);
+      };
     in rec {
-      packages.sketchybar-config = rc;
-      packages.default = packages.sketchybar-config;
+      packages.pwaerospace = pkgs.writeShellApplication {
+        name = "pwaerospace";
+        runtimeInputs = [pkgs.aerospace pkgs.sketchybar pkgs.sketchybar-app-font sbar-config-libs sketchybar-config pkgs.jankyborders aerospace-config];
+        runtimeEnv = {
+          "XDG_CONFIG_HOME" = "${aerospace-config}";
+        };
+        # Sadly we can't specify a custom config file so we have this awful hack here to
+        # change XDG_CONFIG_HOME so it finds the packaged nix aerospace config. That config
+        # will launch sketchbar and the sketchy config.
+        text = ''
+          open -a ${pkgs.aerospace}/Applications/AeroSpace.app
+          #${pkgs.aerospace}/Applications/AeroSpace.app/Contents/MacOS/AeroSpace
+          #${pkgs.aerospace}/bin/aerospace
+        '';
+      };
+      packages.default = packages.pwaerospace;
+      apps.pwaerospace = flake-utils.lib.mkApp {
+        drv = packages.pwaerospace;
+        name = "pwaerospace";
+        exePath = "/bin/pwaerospace";
+      };
+      apps.default = apps.pwaerospace;
       devShell = pkgs.mkShell {
-        buildInputs = [l pkgs.sketchybar];
+        buildInputs = [l packages.pwaerospace pkgs.sketchybar];
       };
     });
 }

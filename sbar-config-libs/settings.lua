@@ -4,7 +4,7 @@ return {
 
   icons = "sf-symbols", -- alternatively available: NerdFont
 
-  -- This is a font configuration for SF Pro and SF Mono (installed manually)
+  -- This is a font configuration for SF Pro and SF Mono (installed manually/via brew)
   font = require("sbar-config-libs/helpers.default_font"),
 
   -- Alternatively, this is a font config for JetBrainsMono Nerd Font

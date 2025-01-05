@@ -82,7 +82,7 @@
       aerospace-config = pkgs.writeTextFile {
         name = "aerospace.toml";
         destination = "/aerospace/aerospace.toml";
-        text = builtins.replaceStrings ["NIXPATHTOSKETCHYCONFIG"] ["${sketchybar-config}"] (pkgs.lib.readFile ./aerospace.toml);
+        text = builtins.replaceStrings ["NIXPATHTOSKETCHYCONFIG" "NIXPATHTOBINARIES" "SKETCHYBARBIN" "AEROSPACEBIN" "BORDERSBIN"] ["${sketchybar-config}" "${l}/bin:${pkgs.aerospace}/bin:${pkgs.sketchybar}/bin:${pkgs.jankyborders}/bin" "${pkgs.sketchybar}/bin/sketchybar" "${pkgs.aerospace}/bin/aerospace" "${pkgs.jankyborders}/bin/borders"] (pkgs.lib.readFile ./aerospace.toml);
       };
     in rec {
       packages.pwaerospace = pkgs.writeShellApplication {
@@ -95,6 +95,23 @@
         # change XDG_CONFIG_HOME so it finds the packaged nix aerospace config. That config
         # will launch sketchbar and the sketchy config.
         text = ''
+          killall -q AeroSpace aerospace sketchybar borders
+          #open -a ${pkgs.aerospace}/Applications/AeroSpace.app
+          ${pkgs.aerospace}/Applications/AeroSpace.app/Contents/MacOS/AeroSpace
+          #${pkgs.aerospace}/bin/aerospace
+        '';
+      };
+      packages.pwaerospacebg = pkgs.writeShellApplication {
+        name = "pwaerospace";
+        runtimeInputs = [pkgs.aerospace pkgs.sketchybar pkgs.sketchybar-app-font sbar-config-libs sketchybar-config pkgs.jankyborders aerospace-config];
+        runtimeEnv = {
+          "XDG_CONFIG_HOME" = "${aerospace-config}";
+        };
+        # Sadly we can't specify a custom config file so we have this awful hack here to
+        # change XDG_CONFIG_HOME so it finds the packaged nix aerospace config. That config
+        # will launch sketchbar and the sketchy config.
+        text = ''
+          killall -q AeroSpace aerospace sketchybar borders
           open -a ${pkgs.aerospace}/Applications/AeroSpace.app
           #${pkgs.aerospace}/Applications/AeroSpace.app/Contents/MacOS/AeroSpace
           #${pkgs.aerospace}/bin/aerospace
@@ -106,9 +123,14 @@
         name = "pwaerospace";
         exePath = "/bin/pwaerospace";
       };
+      apps.pwaerospacebg = flake-utils.lib.mkApp {
+        drv = packages.pwaerospacebg;
+        name = "pwaerospace";
+        exePath = "/bin/pwaerospace";
+      };
       apps.default = apps.pwaerospace;
       devShell = pkgs.mkShell {
-        buildInputs = [l packages.pwaerospace pkgs.sketchybar];
+        buildInputs = [l packages.pwaerospace pkgs.aerospace pkgs.jankyborders pkgs.sketchybar];
       };
     });
 }

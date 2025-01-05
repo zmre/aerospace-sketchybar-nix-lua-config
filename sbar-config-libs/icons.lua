@@ -2,6 +2,7 @@ local settings = require("sbar-config-libs/settings")
 
 local icons = {
   sf_symbols = {
+    error = "􀇾",
     plus = "􀅼",
     loading = "􀖇",
     apple = "􀣺",
@@ -44,6 +45,7 @@ local icons = {
 
   -- Alternative NerdFont icons
   nerdfont = {
+    error = "",
     plus = "",
     loading = "",
     apple = "",

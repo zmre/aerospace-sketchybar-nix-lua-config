@@ -11,11 +11,12 @@ after-login-command = [
 after-startup-command = [
     # JankyBorders has a built-in detection of already running process,
     # so it won't be run twice on AeroSpace restart
-    'exec-and-forget borders active_color=0xffe1e3e4 inactive_color=0xff494d64 width=3.0',
-    'exec-and-forget sketchybar -c NIXPATHTOSKETCHYCONFIG'
+    'exec-and-forget BORDERSBIN active_color=0xffe1e3e4 inactive_color=0xff494d64 width=3.0',
+    'exec-and-forget SKETCHYBARBIN -c NIXPATHTOSKETCHYCONFIG',
+    'exec-and-forget SKETCHYBARBIN --trigger aerospace_started'
 ]
 exec-on-workspace-change = ['/bin/bash', '-c',
-  'sketchybar --trigger aerospace_workspace_change FOCUSED_WORKSPACE=$AEROSPACE_FOCUSED_WORKSPACE PREV_WORKSPACE=$AEROSPACE_PREV_WORKSPACE'
+  'SKETCHYBARBIN --trigger aerospace_workspace_change FOCUSED_WORKSPACE=$AEROSPACE_FOCUSED_WORKSPACE PREV_WORKSPACE=$AEROSPACE_PREV_WORKSPACE'
 ]
 
 # Start AeroSpace at login
@@ -174,12 +175,12 @@ preset = 'qwerty'
 #                 Monitor pattern is the same as for 'workspace-to-monitor-force-assignment'.
 #                 See: https://nikitabobko.github.io/AeroSpace/guide#assign-workspaces-to-monitors
 [gaps]
-inner.horizontal = 4
-inner.vertical =   4
-outer.left =       4
-outer.bottom =     4
-outer.top =        4
-outer.right =      4
+inner.horizontal = [ {monitor."built-in" = 6}, 10 ]
+inner.vertical =   [ {monitor."built-in" = 6}, 10 ]
+outer.left =       [ {monitor."built-in" = 6}, 10 ]
+outer.bottom =     [ {monitor."built-in" = 6}, 10 ]
+outer.top =        [ {monitor."built-in" = 6}, 46]
+outer.right =      [ {monitor."built-in" = 6}, 10 ]
 
 [workspace-to-monitor-force-assignment]
 # plugged in
@@ -246,8 +247,8 @@ alt-ctrl-k = ['join-with up']
 alt-ctrl-l = ['join-with right']
 
 # https://nikitabobko.github.io/AeroSpace/commands#workspace
-alt-ctrl-n = 'exec-and-forget aerospace list-workspaces --monitor focused --empty no | aerospace workspace --wrap-around next' # next occupied space on current monitor
-alt-ctrl-p = 'exec-and-forget aerospace list-workspaces --monitor focused --empty no | aerospace workspace --wrap-around prev' # prev occupied space on current monitor
+alt-ctrl-n = 'exec-and-forget AEROSPACEBIN list-workspaces --monitor focused --empty no | AEROSPACEBIN workspace --wrap-around next' # next occupied space on current monitor
+alt-ctrl-p = 'exec-and-forget AEROSPACEBIN list-workspaces --monitor focused --empty no | AEROSPACEBIN workspace --wrap-around prev' # prev occupied space on current monitor
 alt-ctrl-shift-n = ['workspace --wrap-around next'] # next space -- any monitor and occupied or unoccupied
 alt-ctrl-shift-p = ['workspace --wrap-around prev'] # prev space -- any monitor and occupied or unoccupied
 
@@ -371,6 +372,10 @@ l = 'resize width +50'
 enter = 'mode main'
 esc = 'mode main'
 
+[exec]
+inherit-env-vars = true
+
 [exec.env-vars]
-PATH = '/run/current-system/sw/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/pwalsh/.nix-profile/bin:/etc/profiles/per-user/pwalsh/bin:/nix/var/nix/profiles/default/bin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin'
+PATH = 'NIXPATHTOBINARIES:${PATH}'
+#PATH = '/run/current-system/sw/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/pwalsh/.nix-profile/bin:/etc/profiles/per-user/pwalsh/bin:/nix/var/nix/profiles/default/bin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin'
 

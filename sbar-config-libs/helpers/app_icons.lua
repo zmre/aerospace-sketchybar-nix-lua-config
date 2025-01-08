@@ -1,6 +1,7 @@
 -- these seem to get disentangled to https://github.com/kvndrsslr/sketchybar-app-font/tree/main/mappings
 return {
   ["Live"] = ":ableton:",
+  ["Activity Monitor"] = ":numbers:", -- no pre-existing, sadly
   ["Adobe Bridge"] = ":adobe_bridge:",
   ["Affinity Designer"] = ":affinity_designer:",
   ["Affinity Designer 2"] = ":affinity_designer_2:",

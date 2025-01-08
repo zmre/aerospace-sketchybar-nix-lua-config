@@ -7,7 +7,8 @@ local Promise = require 'promise'
 -- TODO  I think we need to store state and maybe monitor more events such as aerospace on-focused-monitor-change
 --       and/or sketchybar space_change or display_change all of which should trigger on the same thing in our case
 --       Using state, we could track active workspace on each display to fix bugs there and we can probably do better
---       at tracking when workspaces move between displays
+--       at tracking when workspaces move between displays.
+--       display_woke and system_woke might be good times to re-init
 --       Annoyingly will need to track the global previous workspace and the per-display active workspace and then
 --       once those globals have been updated, run through and get the highlights correct on everything
 -- TODO  Bugs when the menus are toggled in and then workspaces are changed. Need a var that tracks display state
@@ -17,11 +18,43 @@ local Promise = require 'promise'
 -- TODO  the sketchybar-app-fonts are great for many apps, but I keep finding ones that are missing (eg, Photos, Ghostty, etc)
 --       so is there a way for me to use icons from elsewhere if the repo doesn't support something?  Or do I need a fork
 --       and to make my own icons?  I've seen PRs that are languishing and will need to see if that continues.
+-- TODO  Bug: screens sometimes jumbled so the B workspace is on my left and shows in sketchy like it's on the right
+--       See: https://github.com/nikitabobko/AeroSpace/issues/336
+--       It appears that sketchybar is using a private API with unknown ordering that's not compatible public API or Aerospace. But sometimes lines up with NSScreens. Ugh.
+--       I don't see any way to fix this. It changes. Sketchy doesn't allow addressing via name or left-to-right order or anything.
+--       Fix: best I can do is let it assign and if I detect it's wrong, press a hotkey to send an event that swaps them. 1 will likely always be right.
+-- TODO: When disconnecting from external monitors and then waking from sleep, sketchybar flashes and changes and flashes and changes quite a bit.
+--       At the same time, aerospace is jumping things around, which may be part of it, but I suspect multiple different events are triggering
+--       refreshes.  Perhaps each monitor removal (I have 3 external) is its own event, for example.
+--       How can I avoid the flickering and ideally avoid unnecessary work?  I almost need a debounce or something or a way to update the stored state
+--       and compare it to the displayed state.  Or really to see if any changes are needed to the stored state and only go through display updates
+--       when there are changes.  So maybe two phases: phase 1 is update state, phase 2 executes if changes were made to state and updates display items.
 
 local spaces = {}
 local brackets = {}
 local space_paddings = {}
 local errorMessageItem = nil
+
+local state = {
+  monitors = {},
+  workspaces = {},
+  menubaron = false
+}
+
+local function onAerospaceError(reason)
+  print("Got error trying to run aerospace command: " .. dump(reason))
+  -- This finds everything with a name of "space.*" and hides it
+  sbar:set("/space\\..*/", { drawing = false })
+  if errorMessageItem ~= nil then
+    -- Manual set of error string on error menu item
+    errorMessageItem:set({
+      drawing = true,
+      label = {
+        string = dump(reason),
+      }
+    })
+  end
+end
 
 local function sbarExecPromise(cmd)
   return Promise.new(function(resolve, failfunc)
@@ -42,14 +75,17 @@ end
 -- Needed for a hack right now. Hope to ditch it later.
 local function delay(seconds)
   return Promise.new(function(resolve)
-    time = os.time()
-    newtime = time + seconds
+    local time = os.time()
+    local newtime = time + seconds
     while (time < newtime) do
       time = os.time()
     end
     resolve()
   end)
 end
+
+-- monitor-appkit-nsscreen-screens-id works with list-monitors (maybe I should keep this up to date?)
+-- list-windows, and list-workspaces
 
 local function getAllWorkspaces()
   return sbarExecPromise(
@@ -74,6 +110,18 @@ end
 local function getNonEmptyWorkspaces()
   return sbarExecPromise(
     "aerospace list-workspaces --monitor all --empty no --format '%{workspace}%{monitor-appkit-nsscreen-screens-id}' --json")
+end
+
+local function highlightWorkspace(space, space_bracket, selected, prevselected)
+  space:set({
+    drawing = true, -- if we go to a space, make it visible
+    icon = { highlight = selected or prevselected, },
+    label = { highlight = selected },
+    background = { border_color = selected and colors.black or colors.bg2 }
+  })
+  space_bracket:set({
+    background = { border_color = selected and colors.grey or colors.bg2 }
+  })
 end
 
 local function showNonEmptyWorkspaces()
@@ -169,40 +217,15 @@ local function onActiveWorkspaceChange(env, space, space_bracket, space_padding)
   end
 end
 
-function onAerospaceError(reason)
-  print("Got error trying to run aerospace command: " .. dump(reason))
-  -- This finds everything with a name of "space.*" and hides it
-  sbar:set("/space\\..*/", { drawing = false })
+local function hideAerospaceError()
   if errorMessageItem ~= nil then
-    -- Manual set of error string on error menu item
     errorMessageItem:set({
-      drawing = true,
-      label = {
-        string = dump(reason),
-      }
+      drawing = false,
     })
   end
 end
 
-function hideAerospaceError()
-  errorMessageItem:set({
-    drawing = false,
-  })
-end
-
-function highlightWorkspace(space, space_bracket, selected, prevselected)
-  space:set({
-    drawing = true, -- if we go to a space, make it visible
-    icon = { highlight = selected or prevselected, },
-    label = { highlight = selected },
-    background = { border_color = selected and colors.black or colors.bg2 }
-  })
-  space_bracket:set({
-    background = { border_color = selected and colors.grey or colors.bg2 }
-  })
-end
-
-function initialize()
+local function initialize()
   errorMessageItem = sbar.add("item", "error", {
     drawing = false,
     updates = "when_shown", -- only listen for aerospace startup if an error is showing
@@ -421,7 +444,7 @@ function initialize()
       end)
     end)
 
-    spaces_indicator:subscribe("mouse.clicked", function(env)
+    spaces_indicator:subscribe("mouse.clicked", function(_)
       sbar.trigger("swap_menus_and_spaces")
     end)
   end):thenCall(function()
@@ -430,7 +453,7 @@ function initialize()
   end)
 end
 
-function dump(o)
+local function dump(o)
   if type(o) == 'table' then
     local s = '{ '
     for k, v in pairs(o) do

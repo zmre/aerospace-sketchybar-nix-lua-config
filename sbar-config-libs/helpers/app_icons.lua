@@ -154,6 +154,7 @@ return {
   ["MAMP"] = ":mamp:",
   ["MAMP PRO"] = ":mamp:",
   ["Maps"] = ":maps:",
+  ["News"] = ":sioyek:",
   ["Ghostty"] = ":terminal:",
   ["Google Maps"] = ":maps:",
   ["Marta"] = ":marta:",

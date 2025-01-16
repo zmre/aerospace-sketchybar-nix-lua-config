@@ -184,8 +184,12 @@ local function setIconsForWorkspace(workspaceid)
     local padding = space_paddings[workspaceid]
 
     sbar.animate("tanh", 10, function()
-      space:set({ drawing = has_apps, label = icon_line })
-      padding:set({ drawing = has_apps })
+      if space ~= nil then
+        space:set({ drawing = has_apps, label = icon_line })
+      end
+      if padding ~= nil then
+        padding:set({ drawing = has_apps })
+      end
     end)
   end)
 end

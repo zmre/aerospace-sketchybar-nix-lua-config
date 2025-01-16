@@ -122,6 +122,15 @@ if.app-id = 'com.apple.Photos'
 run = ['move-node-to-workspace P']
 
 [[on-window-detected]]
+if.app-id = 'com.adobe.Photoshop'
+run = ['move-node-to-workspace P']
+
+#[[on-window-detected]]
+# news seems to rebel against being placed -- except only sometimes?  commenting out for now
+#if.app-id = 'com.apple.news'
+#run = ['layout floating']
+
+[[on-window-detected]]
 if.app-id = '85C27NK92C.com.flexibits.fantastical2.mac.helper'
 run = ['layout floating']
 
@@ -342,7 +351,7 @@ alt-r = 'mode resize'
 # See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes
 [mode.service.binding]
 esc = ['reload-config', 'mode main']
-r = ['flatten-workspace-tree', 'mode main'] # reset layout
+r = ['flatten-workspace-tree', 'reload-config', 'mode main'] # reset layout
 #f = ['layout floating tiling', 'mode main'] # Toggle between floating and tiling layout
 backspace = ['close-all-windows-but-current', 'mode main']
 

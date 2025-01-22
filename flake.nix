@@ -95,7 +95,7 @@
         # change XDG_CONFIG_HOME so it finds the packaged nix aerospace config. That config
         # will launch sketchbar and the sketchy config.
         text = ''
-          killall -q AeroSpace aerospace sketchybar borders
+          killall -q AeroSpace aerospace sketchybar borders || echo "No processes running"
           #open -a ${pkgs.aerospace}/Applications/AeroSpace.app
           ${pkgs.aerospace}/Applications/AeroSpace.app/Contents/MacOS/AeroSpace
           #${pkgs.aerospace}/bin/aerospace
@@ -111,7 +111,7 @@
         # change XDG_CONFIG_HOME so it finds the packaged nix aerospace config. That config
         # will launch sketchbar and the sketchy config.
         text = ''
-          killall -q AeroSpace aerospace sketchybar borders
+          killall -q AeroSpace aerospace sketchybar borders || echo "No processes running"
           open -a ${pkgs.aerospace}/Applications/AeroSpace.app
           #${pkgs.aerospace}/Applications/AeroSpace.app/Contents/MacOS/AeroSpace
           #${pkgs.aerospace}/bin/aerospace

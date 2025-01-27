@@ -88,43 +88,15 @@
       packages.pwaerospace = pkgs.writeShellApplication {
         name = "pwaerospace";
         runtimeInputs = [pkgs.aerospace pkgs.sketchybar pkgs.sketchybar-app-font sbar-config-libs sketchybar-config pkgs.jankyborders aerospace-config];
-        runtimeEnv = {
-          "XDG_CONFIG_HOME" = "${aerospace-config}";
-        };
-        # Sadly we can't specify a custom config file so we have this awful hack here to
-        # change XDG_CONFIG_HOME so it finds the packaged nix aerospace config. That config
-        # will launch sketchbar and the sketchy config.
         text = ''
           killall -q AeroSpace aerospace sketchybar borders || echo "No processes running"
-          #open -a ${pkgs.aerospace}/Applications/AeroSpace.app
-          ${pkgs.aerospace}/Applications/AeroSpace.app/Contents/MacOS/AeroSpace
-          #${pkgs.aerospace}/bin/aerospace
-        '';
-      };
-      packages.pwaerospacebg = pkgs.writeShellApplication {
-        name = "pwaerospace";
-        runtimeInputs = [pkgs.aerospace pkgs.sketchybar pkgs.sketchybar-app-font sbar-config-libs sketchybar-config pkgs.jankyborders aerospace-config];
-        runtimeEnv = {
-          "XDG_CONFIG_HOME" = "${aerospace-config}";
-        };
-        # Sadly we can't specify a custom config file so we have this awful hack here to
-        # change XDG_CONFIG_HOME so it finds the packaged nix aerospace config. That config
-        # will launch sketchbar and the sketchy config.
-        text = ''
-          killall -q AeroSpace aerospace sketchybar borders || echo "No processes running"
-          open -a ${pkgs.aerospace}/Applications/AeroSpace.app
-          #${pkgs.aerospace}/Applications/AeroSpace.app/Contents/MacOS/AeroSpace
-          #${pkgs.aerospace}/bin/aerospace
+          echo "launching..."
+          ${pkgs.aerospace}/Applications/AeroSpace.app/Contents/MacOS/AeroSpace --config-path ${aerospace-config}/aerospace/aerospace.toml
         '';
       };
       packages.default = packages.pwaerospace;
       apps.pwaerospace = flake-utils.lib.mkApp {
         drv = packages.pwaerospace;
-        name = "pwaerospace";
-        exePath = "/bin/pwaerospace";
-      };
-      apps.pwaerospacebg = flake-utils.lib.mkApp {
-        drv = packages.pwaerospacebg;
         name = "pwaerospace";
         exePath = "/bin/pwaerospace";
       };

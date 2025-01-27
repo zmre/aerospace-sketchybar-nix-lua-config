@@ -247,7 +247,9 @@ alt-shift-l = 'move right'
 alt-shift-minus = 'resize smart -50'
 alt-shift-equal = 'resize smart +50'
 
+# fullscreen without a subsequent on/off will toggle
 alt-f = 'fullscreen'
+# toggle layout for focused window between floating and tiling
 alt-t = 'layout floating tiling'
 
 alt-ctrl-h = ['join-with left']

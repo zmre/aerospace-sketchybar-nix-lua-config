@@ -53,6 +53,8 @@
           })
           .outPath;
       };
+
+      # TODO: Need to build dependent C programs here
       sbar-config-libs = pkgs.stdenv.mkDerivation {
         pname = "sbar-config-libs";
         version = "1.0.0";
@@ -70,7 +72,7 @@
 
       # I thought using the lua withPackages stuff would add those things to the path and cpath, but I must be doing something wrong :(
       l = pkgs.lua5_4.withPackages (ps: with ps; [luafilesystem sbar sbar-config-libs promise-lua]);
-      sketchybar-config = pkgs.writeScript "sketchybarrc" ''
+      sketchybar-config = pkgs.writeScriptBin "sketchybarrc" ''
         #!${l}/bin/lua
 
         package.path = package.path .. ";${sbar-config-libs}/share/lua/5.4/?.lua;${sbar-config-libs}/share/lua/5.4/?/init.lua"
@@ -79,19 +81,40 @@
 
         require("sbar-config-libs/init")
       '';
+
       aerospace-config = pkgs.writeTextFile {
-        name = "aerospace.toml";
-        destination = "/aerospace/aerospace.toml";
-        text = builtins.replaceStrings ["NIXPATHTOSKETCHYCONFIG" "NIXPATHTOBINARIES" "SKETCHYBARBIN" "AEROSPACEBIN" "BORDERSBIN"] ["${sketchybar-config}" "${l}/bin:${pkgs.aerospace}/bin:${pkgs.sketchybar}/bin:${pkgs.jankyborders}/bin" "${pkgs.sketchybar}/bin/sketchybar" "${pkgs.aerospace}/bin/aerospace" "${pkgs.jankyborders}/bin/borders"] (pkgs.lib.readFile ./aerospace.toml);
+        name = "aerospace-config";
+        destination = "/share/aerospace.toml";
+        text = builtins.replaceStrings ["NIXPATHTOSKETCHYCONFIG" "NIXPATHTOBINARIES" "SKETCHYBARBIN" "AEROSPACEBIN" "BORDERSBIN"] ["${sketchybar-config}/bin/sketchybarrc" "${l}/bin:${pkgs.sketchybar}/bin:${pkgs.jankyborders}/bin" "${pkgs.sketchybar}/bin/sketchybar" "${pkgs.aerospace}/bin/aerospace" "${pkgs.jankyborders}/bin/borders"] (pkgs.lib.readFile ./aerospace.toml);
       };
-    in rec {
-      packages.pwaerospace = pkgs.writeShellApplication {
+
+      aerospace-launcher = pkgs.writeShellApplication {
         name = "pwaerospace";
-        runtimeInputs = [pkgs.aerospace pkgs.sketchybar pkgs.sketchybar-app-font sbar-config-libs sketchybar-config pkgs.jankyborders aerospace-config];
         text = ''
           killall -q AeroSpace aerospace sketchybar borders || echo "No processes running"
           echo "launching..."
-          ${pkgs.aerospace}/Applications/AeroSpace.app/Contents/MacOS/AeroSpace --config-path ${aerospace-config}/aerospace/aerospace.toml
+          ${pkgs.aerospace}/Applications/AeroSpace.app/Contents/MacOS/AeroSpace --config-path ${aerospace-config}/share/aerospace.toml
+        '';
+      };
+    in rec {
+      packages.pwaerospace = pkgs.symlinkJoin {
+        name = "pwaerospace-full";
+        paths = [
+          pkgs.aerospace
+          pkgs.sketchybar
+          pkgs.sketchybar-app-font
+          pkgs.jankyborders
+          sbar-config-libs
+          aerospace-launcher
+          sketchybar-config
+          aerospace-config
+        ];
+        # buildInputs = [ ];
+        nativeBuildInputs = [pkgs.makeBinaryWrapper];
+        postBuild = ''
+          wrapProgramBinary $out/Applications/AeroSpace.app/Contents/MacOS/AeroSpace \
+            --add-flags "--config-path ${aerospace-config}/share/aerospace.toml"
+
         '';
       };
       packages.default = packages.pwaerospace;

@@ -9,6 +9,9 @@ after-login-command = [
 # 'after-startup-command' is run after 'after-login-command'
 # Available commands : https://nikitabobko.github.io/AeroSpace/commands
 after-startup-command = [
+    # Before starting everything up, kill dependent apps so they can refresh configs
+    'exec-and-forget killall -q sketchybar borders',
+
     # JankyBorders has a built-in detection of already running process,
     # so it won't be run twice on AeroSpace restart
     'exec-and-forget BORDERSBIN active_color=0xffe1e3e4 inactive_color=0xff494d64 width=3.0',
@@ -19,9 +22,8 @@ exec-on-workspace-change = ['/bin/bash', '-c',
   'SKETCHYBARBIN --trigger aerospace_workspace_change FOCUSED_WORKSPACE=$AEROSPACE_FOCUSED_WORKSPACE PREV_WORKSPACE=$AEROSPACE_PREV_WORKSPACE'
 ]
 
-# Start AeroSpace at login
-# I want this to be true, but pretty sure it won't start with the right config
-# Probably need to port all this to a home-manager module
+# You could turn this on and I think it would work okay, but I have a login item I manage with
+# home-manager that gives me more control.
 start-at-login = false
 
 # Normalizations. See: https://nikitabobko.github.io/AeroSpace/guide#normalization

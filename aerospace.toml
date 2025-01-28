@@ -10,7 +10,8 @@ after-login-command = [
 # Available commands : https://nikitabobko.github.io/AeroSpace/commands
 after-startup-command = [
     # Before starting everything up, kill dependent apps so they can refresh configs
-    'exec-and-forget killall -q sketchybar borders',
+    # ... this is killing things started below so no bueno...
+    #'exec-and-forget killall -q sketchybar borders',
 
     # JankyBorders has a built-in detection of already running process,
     # so it won't be run twice on AeroSpace restart

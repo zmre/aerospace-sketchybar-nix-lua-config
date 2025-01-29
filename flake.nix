@@ -91,6 +91,7 @@
       aerospace-launcher = pkgs.writeShellApplication {
         name = "pwaerospace";
         text = ''
+          echo "killing..."
           killall -q AeroSpace aerospace sketchybar borders || echo "No processes running"
           echo "launching..."
           ${pkgs.aerospace}/Applications/AeroSpace.app/Contents/MacOS/AeroSpace --config-path ${aerospace-config}/share/aerospace.toml

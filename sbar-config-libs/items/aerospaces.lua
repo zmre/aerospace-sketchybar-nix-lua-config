@@ -106,7 +106,7 @@ local function onAerospaceError(reason)
     errorMessageItem:set({
       drawing = true,
       label = {
-        string = reason and dump(reason) or "aerospace not running",
+        string = "aerospace errors",
       }
     })
   end

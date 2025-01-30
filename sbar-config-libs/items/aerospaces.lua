@@ -4,31 +4,48 @@ local settings = require("sbar-config-libs/settings")
 local app_icons = require("sbar-config-libs/helpers.app_icons")
 local Promise = require 'promise'
 
--- TODO  I think we need to store state and maybe monitor more events such as aerospace on-focused-monitor-change
---       and/or sketchybar space_change or display_change all of which should trigger on the same thing in our case
---       Using state, we could track active workspace on each display to fix bugs there and we can probably do better
---       at tracking when workspaces move between displays.
---       display_woke and system_woke might be good times to re-init
---       Annoyingly will need to track the global previous workspace and the per-display active workspace and then
---       once those globals have been updated, run through and get the highlights correct on everything
--- TODO  Bugs when the menus are toggled in and then workspaces are changed. Need a var that tracks display state
---       so if workspace display is off, we don't accidentally start redrawing stuff in piecemeal
--- TODO  If there's a display that doesn't have an app on it, the bar doesn't show what workspace is there. Need to show empty workspaces that are active on displays
--- TODO  Moving a workspace to a different screen doesn't trigger any sort of update right now. Maybe the events above?
--- TODO  the sketchybar-app-fonts are great for many apps, but I keep finding ones that are missing (eg, Photos, Ghostty, etc)
---       so is there a way for me to use icons from elsewhere if the repo doesn't support something?  Or do I need a fork
---       and to make my own icons?  I've seen PRs that are languishing and will need to see if that continues.
--- TODO  Bug: screens sometimes jumbled so the B workspace is on my left and shows in sketchy like it's on the right
---       See: https://github.com/nikitabobko/AeroSpace/issues/336
---       It appears that sketchybar is using a private API with unknown ordering that's not compatible public API or Aerospace. But sometimes lines up with NSScreens. Ugh.
---       I don't see any way to fix this. It changes. Sketchy doesn't allow addressing via name or left-to-right order or anything.
---       Fix: best I can do is let it assign and if I detect it's wrong, press a hotkey to send an event that swaps them. 1 will likely always be right.
--- TODO: When disconnecting from external monitors and then waking from sleep, sketchybar flashes and changes and flashes and changes quite a bit.
---       At the same time, aerospace is jumping things around, which may be part of it, but I suspect multiple different events are triggering
---       refreshes.  Perhaps each monitor removal (I have 3 external) is its own event, for example.
---       How can I avoid the flickering and ideally avoid unnecessary work?  I almost need a debounce or something or a way to update the stored state
---       and compare it to the displayed state.  Or really to see if any changes are needed to the stored state and only go through display updates
---       when there are changes.  So maybe two phases: phase 1 is update state, phase 2 executes if changes were made to state and updates display items.
+local function dump(o)
+  if type(o) == 'table' then
+    local s = '{ '
+    for k, v in pairs(o) do
+      if type(k) ~= 'number' then k = '"' .. k .. '"' end
+      s = s .. '[' .. k .. '] = ' .. dump(v) .. ','
+    end
+    return s .. '} '
+  else
+    return tostring(o)
+  end
+end
+
+-- The behavior I want is this:
+--    I have far more workspaces than I'm typically using.  Certain things like email pinned to letter workspaces.
+--    Current project-type things (word docs, presentations, whatever) are sent to the numbers typically.
+--
+--    Sketchybar should only show the workspaces that have apps on them or visible workspaces (up on a monitor) even
+--    if there's no app.
+--
+--    Each monitor should only show the workspaces that are on that monitor.
+--
+--    The "highlight" effect (currently red text and with a white border) should apply to each visible (active) workspace
+--    on each monitor
+--
+--    On change of workspace, the new workspace should immediately get highlighted and old workspace unhighlighted.
+--    But there are complications since aerospace doesn't provide info about active or not active workspaces in its trigger.
+--    So what we want to do is to make a quick change, then update our state and fix up any issues, which can be a slightly delayed
+--    action since commands have to be run and output parsed.
+--
+--    We want to be efficient with our events, but we don't want to miss events, therefore we might get an app change event
+--    at the same time as a workspace change event and both of those might trigger state updates.  Or we might have a user
+--    quickly bouncing between applications, which would produce a rush of state updates.  So we're going to implement
+--    a poor man's lock -- if state is being updated when something else wants to update state, ignore the second request,
+--    but we need to error out of promises so bad state doesn't get saved in this case.  If we have an issue with the state
+--    snapshot being slow and getting out of date, we'll need to have a flag to trigger a re-run when the state update finishes,
+--    but hopefully that won't be necessary.
+--
+--    When the toggle for showing menus is hit, we hide all the non-active workspaces, but still show the current workspace
+--    on each monitor.
+--
+--    We do an instant update on workspace change, but for other events (like new window)
 
 local spaces = {}
 local brackets = {}
@@ -36,31 +53,96 @@ local space_paddings = {}
 local errorMessageItem = nil
 
 local state = {
-  monitors = {},
   workspaces = {},
-  menubaron = false
+  menubar_on = false,
+  updating = false,
 }
 
+local function syncBarToGlobalState()
+  -- Open question: is there any reason to first check values and only update if they are different?
+  -- or is there a way to batch changes?  Maybe animate does this already?
+  sbar.animate("tanh", 10, function()
+    for workspaceid, workspacestate in pairs(state.workspaces) do
+      if (not state.menubar_on and not workspacestate["empty"]) or workspacestate["active"] then
+        -- These should be visible
+        spaces[workspaceid]:set({
+          drawing = true,
+          display = workspacestate["monitor"],
+          label = {
+            string = workspacestate["appicons"],
+            highlight = workspacestate["active"],
+          },
+          icon = {
+            highlight = workspacestate["active"],
+          },
+          background = { border_color = workspacestate["active"] and colors.black or colors.bg2 }
+        })
+        space_paddings[workspaceid]:set({ drawing = true })
+        brackets[workspaceid]:set({
+          drawing = true,
+          background = { border_color = workspacestate["active"] and colors.grey or colors.bg2 }
+        })
+      else
+        -- These should be hidden
+        spaces[workspaceid]:set({
+          drawing = false,
+          display = workspacestate["monitor"],
+          label = workspacestate["appicons"],
+        })
+        space_paddings[workspaceid]:set({ drawing = false })
+        brackets[workspaceid]:set({ drawing = false })
+      end
+    end
+  end)
+end
+
 local function onAerospaceError(reason)
-  print("Got error trying to run aerospace command: " .. dump(reason))
-  -- This finds everything with a name of "space.*" and hides it
-  sbar:set("/space\\..*/", { drawing = false })
+  print("Got error trying to run aerospace command: " .. (reason and dump(reason) or "unknown"))
+
+  state.updating = false
+
   if errorMessageItem ~= nil then
     -- Manual set of error string on error menu item
     errorMessageItem:set({
       drawing = true,
       label = {
-        string = dump(reason),
+        string = "aerospace errors",
       }
     })
   end
+
+  for _, workspacestate in pairs(state.workspaces) do
+    workspacestate["active"] = false
+    workspacestate["empty"] = true
+  end
+  syncBarToGlobalState()
+end
+
+-- Function below is an awful hack, but the aerospace monitor ids and the sketchybar monitorids don't line up
+-- They both seem to get the primary monitor as 1 if you use aerospace's alternate monitor-appkit-nsscreen-screens-id
+-- field, which means in a dual monitor setup they'll pretty much always work out right. But in a three monitor setup,
+-- they diverge -- or they can diverge.  They do for me.  So I've hard coded monitor names and values
+-- as an ugly hack.
+-- See: https://github.com/nikitabobko/AeroSpace/issues/336 which is closed/resolved but compatibility is still awful
+local function getSketchyMonitorIdFrom(objWithMonitorInfo)
+  if objWithMonitorInfo["monitor-name"] then
+    if objWithMonitorInfo["monitor-name"] == "LG Ultra HD" then
+      return "2"
+    elseif objWithMonitorInfo["monitor-name"] == "RODE_RCV" then
+      return "3"
+    end
+  end
+  if objWithMonitorInfo["monitor-appkit-nsscreen-screens-id"] then
+    return objWithMonitorInfo["monitor-appkit-nsscreen-screens-id"]
+  end
+  return objWithMonitorInfo["monitor-id"]
 end
 
 local function sbarExecPromise(cmd)
   return Promise.new(function(resolve, failfunc)
     sbar.exec(cmd, function(result, exit_code)
       if exit_code ~= 0 then
-        if fail ~= nil then
+        if failfunc ~= nil then
           failfunc(string.format("Exit Code: %s Message: %s", tostring(exit_code), dump(result)))
         end
       else
@@ -72,153 +154,148 @@ local function sbarExecPromise(cmd)
   end):catch(onAerospaceError)
 end
 
--- Needed for a hack right now. Hope to ditch it later.
-local function delay(seconds)
-  return Promise.new(function(resolve)
-    local time = os.time()
-    local newtime = time + seconds
-    while (time < newtime) do
-      time = os.time()
-    end
-    resolve()
-  end)
-end
-
--- monitor-appkit-nsscreen-screens-id works with list-monitors (maybe I should keep this up to date?)
--- list-windows, and list-workspaces
-
 local function getAllWorkspaces()
   return sbarExecPromise(
-    "aerospace list-workspaces --all --format '%{workspace}%{monitor-appkit-nsscreen-screens-id}' --json")
+    "aerospace list-workspaces --all --format '%{workspace}%{monitor-appkit-nsscreen-screens-id}%{monitor-id}%{monitor-name}' --json")
 end
 
-local function getWindowsOnWorkspace(workspaceid)
-  return sbarExecPromise(string.format("aerospace list-windows --workspace '%s' --format '%%{app-name}' --json",
-    workspaceid))
+local function getAllWindows()
+  return sbarExecPromise(
+    "aerospace list-windows --all --format '%{app-name}%{window-title}%{workspace}%{monitor-id}%{monitor-appkit-nsscreen-screens-id}%{monitor-name}' --json"
+  )
 end
 
 local function getVisibleWorkspaces()
   return sbarExecPromise(
-    "aerospace list-workspaces --visible --monitor all --format '%{workspace}%{monitor-appkit-nsscreen-screens-id}' --json")
+    "aerospace list-workspaces --visible --monitor all --format '%{workspace}%{monitor-appkit-nsscreen-screens-id}%{monitor-id}%{monitor-name}' --json")
 end
 
-local function getEmptyWorkspaces()
-  return sbarExecPromise(
-    "aerospace list-workspaces --monitor all --empty --format '%{workspace}%{monitor-appkit-nsscreen-screens-id}' --json")
+local function getCurrentState()
+  local newstate = {
+    workspaces = {},
+  }
+
+  for workspaceid, space in pairs(spaces) do
+    -- assume not visible and empty and we'll update
+    newstate.workspaces[workspaceid] = {
+      monitor = 0,
+      active = false,
+      empty = true,
+      apps = {},
+      appicons = ''
+    }
+  end
+
+  local visiblePromise = getVisibleWorkspaces()
+  local allPromise = getAllWorkspaces()
+  local appsPromise = getAllWindows()
+
+  return Promise.all({ visiblePromise, allPromise, appsPromise }):thenCall(function(values)
+    local visible, all, apps = values[1], values[2], values[3]
+    -- Assign workspaces to monitors
+    for _, workspace in ipairs(all) do
+      local workspaceid = workspace["workspace"]
+      newstate.workspaces[workspaceid]["monitor"] = getSketchyMonitorIdFrom(workspace)
+    end
+
+    -- Make sure visible workspaces are marked as active
+    for _, workspace in ipairs(visible) do
+      local workspaceid = workspace["workspace"]
+      newstate.workspaces[workspaceid]["active"] = true
+    end
+
+    -- figure out what apps are where and set "empty" flag appropriately
+    for _, window in ipairs(apps) do
+      local workspaceid = window["workspace"]
+      local appname = window["app-name"]
+      newstate.workspaces[workspaceid]["apps"][appname] = true
+      newstate.workspaces[workspaceid]["empty"] = false
+    end
+
+    -- lookup icons for each app looping through all workspaces
+    for workspaceid, workspacestate in pairs(newstate.workspaces) do
+      -- Lua is awful; we just want a sorted list of app names for the windows on this workspace
+      -- so we can build up a decent icon line
+      -- also, we only want to do this if num entries in workspacestate["apps"] > 0
+      -- but #workspacestate["apps"] only counts items indexed with a number
+      -- which is so stupid I could spit
+      -- https://stackoverflow.com/questions/2705793/how-to-get-number-of-entries-in-a-lua-table
+      local appkeys = {}
+      for app in pairs(workspacestate["apps"]) do
+        table.insert(appkeys, app)
+      end
+      table.sort(appkeys) -- okay, sorted and unique list to minimize updates to the screen
+      if #appkeys > 0 then
+        for _, app in ipairs(appkeys) do
+          local lookup = app_icons[app]
+          local icon = ((lookup == nil) and app_icons["Default"] or lookup)
+          workspacestate["appicons"] = workspacestate["appicons"] .. " " .. icon
+        end
+      else
+        workspacestate["appicons"] = " —"
+      end
+    end
+    return newstate
+  end)
 end
 
-local function getNonEmptyWorkspaces()
-  return sbarExecPromise(
-    "aerospace list-workspaces --monitor all --empty no --format '%{workspace}%{monitor-appkit-nsscreen-screens-id}' --json")
+local function updateCurrentState()
+  if not state.updating then
+    state.updating = true
+    return getCurrentState():thenCall(function(newstate)
+      -- IMPROVEMENT: maybe calculate diffs for a partial update in-place in existing global? Not sure on memory
+      --              implications of the current approach though it should be more atomic-ish
+      state.workspaces = newstate.workspaces
+      state.updating = false
+    end)
+  end
+  return Promise.reject('State is already updating')
 end
 
-local function highlightWorkspace(space, space_bracket, selected, prevselected)
+local function updateCurrentStateAndSync()
+  return updateCurrentState():thenCall(syncBarToGlobalState)
+end
+
+
+local function highlightWorkspace(space, space_padding, space_bracket, selected)
   space:set({
     drawing = true, -- if we go to a space, make it visible
-    icon = { highlight = selected or prevselected, },
+    icon = { highlight = selected },
     label = { highlight = selected },
     background = { border_color = selected and colors.black or colors.bg2 }
+  })
+  space_padding:set({
+    drawing = true,
   })
   space_bracket:set({
     background = { border_color = selected and colors.grey or colors.bg2 }
   })
 end
 
-local function showNonEmptyWorkspaces()
-  return getNonEmptyWorkspaces():thenCall(function(workspaces)
-    for _, workspace in ipairs(workspaces) do
-      local workspaceid = workspace["workspace"]
-      local display = workspace["monitor-appkit-nsscreen-screens-id"]
-      spaces[workspaceid]:set({ drawing = true, display = display })
-      space_paddings[workspaceid]:set({ drawing = true, display = display })
-    end
-  end)
-end
 
-local function hideEmptyWorkspaces()
-  return getEmptyWorkspaces():thenCall(function(workspaces)
-    for _, workspace in ipairs(workspaces) do
-      local workspaceid = workspace["workspace"]
-      local display = workspace["monitor-appkit-nsscreen-screens-id"]
-      spaces[workspaceid]:set({ drawing = false, display = display })
-      space_paddings[workspaceid]:set({ drawing = false, display = display })
-    end
-  end)
-end
-
-local function highlightVisibleWorkspaces()
-  return getVisibleWorkspaces():thenCall(function(workspaces)
-    for _, workspace in ipairs(workspaces) do
-      local workspaceid = workspace["workspace"]
-      local display = workspace["monitor-appkit-nsscreen-screens-id"]
-      local space = spaces[workspaceid]
-      local space_bracket = brackets[workspaceid]
-      space:set({ display = display })
-      space_bracket = ({ display = display })
-      highlightWorkspace(space, space_bracket, true, false)
-    end
-  end)
-end
-
-local function setIconsForWorkspace(workspaceid)
-  return getWindowsOnWorkspace(workspaceid):thenCall(function(windows)
-    local icon_line = ""
-    local has_apps = #windows > 0
-    local loaded_icons = {} -- we use this to avoid duplicating app icons for multiple windows
-
-    if has_apps then
-      for _, window in ipairs(windows) do
-        local app = window["app-name"]
-        local lookup = app_icons[app]
-        local icon = ((lookup == nil) and app_icons["Default"] or lookup)
-        if loaded_icons[icon] == nil then
-          loaded_icons[icon] = true
-          icon_line = icon_line .. " " .. icon
-        end
-      end
-    else
-      icon_line = " —"
-    end
-
-    local space = spaces[workspaceid]
-    local padding = space_paddings[workspaceid]
-
-    sbar.animate("tanh", 10, function()
-      if space ~= nil then
-        space:set({ drawing = has_apps, label = icon_line })
-      end
-      if padding ~= nil then
-        padding:set({ drawing = has_apps })
-      end
-    end)
-  end)
-end
-
-local function onActiveWorkspaceChange(env, space, space_bracket, space_padding)
-  local workspaceid = space.name:gsub("^space.", "")
+local function onActiveWorkspaceChange(env)
   local focused_workspace = env.FOCUSED_WORKSPACE
   local last_workspace = env.PREV_WORKSPACE
-  local selected = focused_workspace == workspaceid
-  local prevselected = last_workspace == workspaceid
+  print("aerospace_workspace_change from " .. last_workspace .. " to " .. focused_workspace)
 
-  if selected then
-    -- Even if we switch to an empty workspace, display it
-    space:set({ drawing = true })
-    space_padding:set({ drawing = true })
-  end
+  local space = spaces[focused_workspace]
+  local space_bracket = brackets[focused_workspace]
+  local space_padding = space_paddings[focused_workspace]
 
-  -- Only update selection indicators for items that are displayed
-  if space:query().geometry.drawing == "on" then
-    sbar.animate("tanh", 10, function()
-      highlightWorkspace(space, space_bracket, selected, prevselected)
-    end)
-    if selected then
-      -- Make sure apps in bar are up to date when we switch both for this space
-      -- and previous. This should catch moves of windows between workspaces.
-      setIconsForWorkspace(focused_workspace)
-          :thenCall(function() setIconsForWorkspace(last_workspace) end)
+  local prev_space = spaces[last_workspace]
+  local prev_space_bracket = brackets[last_workspace]
+  local prev_space_padding = space_paddings[last_workspace]
+
+  sbar.animate("tanh", 10, function()
+    -- highlight the newly focused workspace
+    highlightWorkspace(space, space_padding, space_bracket, true)
+    -- if the new workspace is on the same monitor, unhighlight the previous one
+    if state.workspaces[last_workspace]["monitor"] == state.workspaces[focused_workspace]["monitor"] then
+      highlightWorkspace(prev_space, prev_space_padding, prev_space_bracket, false)
     end
-  end
+  end)
+
+  updateCurrentStateAndSync()
 end
 
 local function hideAerospaceError()
@@ -227,6 +304,7 @@ local function hideAerospaceError()
       drawing = false,
     })
   end
+  updateCurrentStateAndSync()
 end
 
 local function initialize()
@@ -260,10 +338,10 @@ local function initialize()
   getAllWorkspaces():thenCall(function(workspaces)
     for _, workspace in ipairs(workspaces) do
       local workspaceid = workspace["workspace"]
-      local display = workspace["monitor-appkit-nsscreen-screens-id"]
+      local display = getSketchyMonitorIdFrom(workspace)
       local space = sbar.add("item", "space." .. workspaceid, {
         drawing = false, -- default to not showing the space -- we'll show if it has windows or is activated
-        updates = true,  -- even if hidden, get events
+        updates = "when_shown",
         display = display,
         icon = {
           font = { family = settings.font.numbers, size = 12.0 },
@@ -289,7 +367,6 @@ local function initialize()
           border_color = colors.black,
         },
         click_script = "aerospace workspace " .. workspaceid,
-        popup = { background = { border_width = 5, border_color = colors.black } }
       })
 
       spaces[workspaceid] = space
@@ -298,6 +375,7 @@ local function initialize()
       -- Single item bracket for space items to achieve double border on highlight
       local space_bracket = sbar.add("bracket", "bracket." .. workspaceid, { space.name }, {
         display = display,
+        updates = "when_shown",
         background = {
           color = colors.transparent,
           border_color = colors.bg2,
@@ -307,35 +385,31 @@ local function initialize()
       })
       brackets[workspaceid] = space_bracket
 
+      space:subscribe("mouse.entered", function(env)
+        sbar.animate("tanh", 10, function()
+          space_bracket:set({
+            background = { border_color = colors.grey }
+          })
+        end)
+      end)
+
+      space:subscribe("mouse.exited", function(env)
+        sbar.animate("tanh", 10, function()
+          space_bracket:set({
+            background = { border_color = colors.bg2 }
+          })
+        end)
+      end)
+
       -- Padding space
       local padding = sbar.add("space", "space.padding." .. space.name, {
         drawing = false,
+        updates = "when_shown",
         display = display,
         script = "",
         width = settings.group_paddings,
       })
       space_paddings[workspaceid] = padding
-
-      sbar.add("item", {
-        position = "popup." .. space.name,
-        display = display,
-        padding_left = 5,
-        padding_right = 0,
-        background = {
-          drawing = true,
-          image = {
-            corner_radius = 9,
-            scale = 0.2
-          }
-        }
-      })
-
-      space:subscribe("aerospace_workspace_change", function(env)
-        onActiveWorkspaceChange(env, space, space_bracket, padding)
-      end)
-
-      -- Add any icons
-      setIconsForWorkspace(workspaceid)
     end
   end):thenCall(function()
     -- this chain makes sure we get async things in the right order
@@ -366,51 +440,23 @@ local function initialize()
       }
     })
 
+    space_window_observer:subscribe("aerospace_workspace_change", onActiveWorkspaceChange)
+
     -- space_windows_change triggers when a window is created or destroyed
     -- unfortunately, we don't know enough to know what was added or deleted
     -- so we have to go through all non-empty workspaces
-    space_window_observer:subscribe("space_windows_change", function(env)
-      print("window added or removed")
-      -- we want to optimize by refreshing the currently visible spaces first,
-      -- then worry about the rest of the non-empty spaces
-      local focused = {}
-      getVisibleWorkspaces()
-          :thenCall(function(workspaces)
-            for _, workspace in ipairs(workspaces) do
-              local workspaceid = workspace["workspace"]
-              local display = workspace["monitor-appkit-nsscreen-screens-id"]
-              print("refreshing windows for " .. workspaceid)
-              local space = spaces[workspaceid]
-              space:set({ display = display })
-              setIconsForWorkspace(workspaceid)
-              focused[workspaceid] = true
-            end
-          end)
-          :thenCall(function()
-            getNonEmptyWorkspaces():thenCall(function(workspaces)
-              for _, workspace in ipairs(workspaces) do
-                local workspaceid = workspace["workspace"]
-                local display = workspace["monitor-appkit-nsscreen-screens-id"]
-                if focused[workspaceid] == nil then
-                  print("refreshing windows for " .. workspaceid)
-                  local space = spaces[workspaceid]
-                  space:set({ display = display })
-                  setIconsForWorkspace(workspaceid)
-                end
-              end
-            end)
-          end)
-    end)
-    space_window_observer:subscribe("front_app_switched", function(env)
-      -- This is sort of a gratuitous call to make sure aerospace is still running any time we change apps
-      -- just highlight all the visible workspaces
-      highlightVisibleWorkspaces()
-    end)
+    space_window_observer:subscribe("space_windows_change", updateCurrentStateAndSync)
 
-    -- only displayed and updated whebn there's already been an error
+    space_window_observer:subscribe("system_woke", updateCurrentStateAndSync)
+
+    -- This is sort of a gratuitous call to make sure aerospace is still running any time we change apps
+    -- just highlight all the visible workspaces
+    space_window_observer:subscribe("front_app_switched", updateCurrentStateAndSync)
+
+    -- only displayed and updated when there's already been an error
     errorMessageItem:subscribe("aerospace_started", function(env)
       hideAerospaceError()
-      showNonEmptyWorkspaces()
+      updateCurrentStateAndSync()
     end)
 
     spaces_indicator:subscribe("swap_menus_and_spaces", function(env)
@@ -418,12 +464,21 @@ local function initialize()
       spaces_indicator:set({
         icon = currently_on and icons.switch.off or icons.switch.on
       })
-      -- TODO: ditch this hack and implement the menus stuff better so all workspaces aren't made visible
-      delay(1):thenCall(hideEmptyWorkspaces)
+      state.menubar_on = currently_on
+
+      sbar.animate("tanh", 10, function()
+        for workspaceid, space in pairs(spaces) do
+          local vis = (not currently_on and not state.workspaces[workspaceid].empty) or
+              state.workspaces[workspaceid].active
+          space:set({ drawing = vis })
+          space_paddings[workspaceid]:set({ drawing = vis })
+          brackets[workspaceid]:set({ drawing = vis })
+        end
+      end)
     end)
 
     spaces_indicator:subscribe("mouse.entered", function(env)
-      sbar.animate("tanh", 30, function()
+      sbar.animate("tanh", 10, function()
         spaces_indicator:set({
           background = {
             color = { alpha = 1.0 },
@@ -436,7 +491,7 @@ local function initialize()
     end)
 
     spaces_indicator:subscribe("mouse.exited", function(env)
-      sbar.animate("tanh", 30, function()
+      sbar.animate("tanh", 10, function()
         spaces_indicator:set({
           background = {
             color = { alpha = 0.0 },
@@ -451,23 +506,7 @@ local function initialize()
     spaces_indicator:subscribe("mouse.clicked", function(_)
       sbar.trigger("swap_menus_and_spaces")
     end)
-  end):thenCall(function()
-    -- last phase of startup -- make sure we highlight visible spaces
-    return highlightVisibleWorkspaces()
-  end)
-end
-
-local function dump(o)
-  if type(o) == 'table' then
-    local s = '{ '
-    for k, v in pairs(o) do
-      if type(k) ~= 'number' then k = '"' .. k .. '"' end
-      s = s .. '[' .. k .. '] = ' .. dump(v) .. ','
-    end
-    return s .. '} '
-  else
-    return tostring(o)
-  end
+  end):thenCall(updateCurrentStateAndSync)
 end
 
 initialize()

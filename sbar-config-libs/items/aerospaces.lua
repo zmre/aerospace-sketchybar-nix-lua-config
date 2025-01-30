@@ -47,22 +47,6 @@ end
 --
 --    We do an instant update on workspace change, but for other events (like new window)
 
--- TODO  Moving a workspace to a different screen doesn't trigger any sort of update right now. Maybe the events above?
--- TODO  the sketchybar-app-fonts are great for many apps, but I keep finding ones that are missing (eg, Photos, Ghostty, etc)
---       so is there a way for me to use icons from elsewhere if the repo doesn't support something?  Or do I need a fork
---       and to make my own icons?  I've seen PRs that are languishing and will need to see if that continues.
--- TODO: When disconnecting from external monitors and then waking from sleep, sketchybar flashes and changes and flashes and changes quite a bit.
---       At the same time, aerospace is jumping things around, which may be part of it, but I suspect multiple different events are triggering
---       refreshes.  Perhaps each monitor removal (I have 3 external) is its own event, for example.
---       How can I avoid the flickering and ideally avoid unnecessary work?  I almost need a debounce or something or a way to update the stored state
---       and compare it to the displayed state.  Or really to see if any changes are needed to the stored state and only go through display updates
---       when there are changes.  So maybe two phases: phase 1 is update state, phase 2 executes if changes were made to state and updates display items.
--- TODO: When I go to macos full screen, it uses Mac spaces. But I've disabled keys and swipes for getting into/out of those spaces
---       which means I can't navigate to those windows. If the app has only one window that's full screen, cmd-tab works, but if
---       this is Preview, for example, and one PDF is full screen and another isn't, I might have a hard time getting to the full
---       screen one.
---       Should I disable full screen app options outside of what aerospace does?  Or bring back a way to access them?
-
 local spaces = {}
 local brackets = {}
 local space_paddings = {}
@@ -462,6 +446,8 @@ local function initialize()
     -- unfortunately, we don't know enough to know what was added or deleted
     -- so we have to go through all non-empty workspaces
     space_window_observer:subscribe("space_windows_change", updateCurrentStateAndSync)
+
+    space_window_observer:subscribe("system_woke", updateCurrentStateAndSync)
 
     -- This is sort of a gratuitous call to make sure aerospace is still running any time we change apps
     -- just highlight all the visible workspaces

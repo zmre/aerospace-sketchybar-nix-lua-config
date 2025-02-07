@@ -338,6 +338,7 @@ local function initialize()
   getAllWorkspaces():thenCall(function(workspaces)
     for _, workspace in ipairs(workspaces) do
       local workspaceid = workspace["workspace"]
+
       local display = getSketchyMonitorIdFrom(workspace)
       local space = sbar.add("item", "space." .. workspaceid, {
         drawing = false, -- default to not showing the space -- we'll show if it has windows or is activated

@@ -61,6 +61,10 @@ In my system config, I install this flake and then have it launch on startup by 
 ### Flake
 
 * [ ] Change build stuff so the sketchybar compiled C files are actually compiled instead of being checked in as binaries
+  * 2025-02-13 checked and the helpers haven't been updated in a long time, but for future me:
+  * https://github.com/FelixKratz/dotfiles/tree/master/.config/sketchybar/helpers
+  * Above repo is what I want to fetch and build from. Problem is, his dotfiles change often but the helpers don't and that's going to create a lot of unnecessary rebuilds.  not a huge deal, but annoying.
+  * Alternate idea: would it be idiotic to make my own helpers, but in rust?  Then I could make a weather one, too?
 
 ### Sketchybar
 

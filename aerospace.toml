@@ -131,6 +131,15 @@ run = ['move-node-to-workspace P']
 if.app-id = 'com.adobe.Photoshop'
 run = ['move-node-to-workspace P']
 
+[[on-window-detected]]
+if.app-id = 'com.adobe.illustrator'
+run = ['move-node-to-workspace P']
+
+[[on-window-detected]]
+# InDesign and Aerospace don't get along. Trying floating.
+if.app-id = 'com.adobe.InDesign'
+run = ['layout floating', 'move-node-to-workspace P']
+
 #[[on-window-detected]]
 # news seems to rebel against being placed -- except only sometimes?  commenting out for now
 #if.app-id = 'com.apple.news'
@@ -298,9 +307,10 @@ alt-shift-c = 'move-node-to-monitor --focus-follows-window 3'
 # move-workspace-to-monitor is crappy -- can only specify next/prev and not specific monitors
 # we'll just use z/c to mean prev/next
 # also can't move focus with the workspace
-alt-ctrl-z = 'move-workspace-to-monitor --wrap-around prev'
+# also, the exec-on-workspace-change event doesn't fire when moving workspaces so we need to manually trigger sketchy to update
+alt-ctrl-z = ['move-workspace-to-monitor --wrap-around prev', 'exec-and-forget SKETCHYBARBIN --trigger aerospace_workspace_change']
 #alt-ctrl-x = 'move-workspace-to-monitor 2'
-alt-ctrl-c = 'move-workspace-to-monitor --wrap-around next'
+alt-ctrl-c = ['move-workspace-to-monitor --wrap-around next', 'exec-and-forget SKETCHYBARBIN --trigger aerospace_workspace_change']
 
 # full reset
 alt-shift-r = ['reload-config', 'flatten-workspace-tree']
@@ -372,7 +382,16 @@ alt-r = 'mode resize'
 # See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes
 [mode.service.binding]
 esc = ['reload-config', 'mode main']
-r = ['flatten-workspace-tree', 'reload-config', 'mode main'] # reset layout
+r = [ # reset layout and restart sketchy etc
+  'flatten-workspace-tree', 
+  'reload-config', 
+  'exec-and-forget killall sketchybar borders',
+  'exec-and-forget BORDERSBIN active_color=0xffe1e3e4 inactive_color=0xff494d64 width=3.0',
+  'exec-and-forget SKETCHYBARBIN -c NIXPATHTOSKETCHYCONFIG',
+  'exec-and-forget SKETCHYBARBIN --trigger aerospace_started',
+  'mode main'
+]
+
 #f = ['layout floating tiling', 'mode main'] # Toggle between floating and tiling layout
 backspace = ['close-all-windows-but-current', 'mode main']
 

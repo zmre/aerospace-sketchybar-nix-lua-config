@@ -276,24 +276,29 @@ end
 local function onActiveWorkspaceChange(env)
   local focused_workspace = env.FOCUSED_WORKSPACE
   local last_workspace = env.PREV_WORKSPACE
-  print("aerospace_workspace_change from " .. last_workspace .. " to " .. focused_workspace)
+  -- in certain circumstances, the change workspace event won't have the env vars
+  -- example: when moving a workspace between monitors
+  -- in that case, we just skip the quick update highlight stuff and go to a full system state sync
+  if focused_workspace ~= nil and last_workspace ~= nil then
+    print("aerospace_workspace_change from " .. last_workspace .. " to " .. focused_workspace)
 
-  local space = spaces[focused_workspace]
-  local space_bracket = brackets[focused_workspace]
-  local space_padding = space_paddings[focused_workspace]
+    local space = spaces[focused_workspace]
+    local space_bracket = brackets[focused_workspace]
+    local space_padding = space_paddings[focused_workspace]
 
-  local prev_space = spaces[last_workspace]
-  local prev_space_bracket = brackets[last_workspace]
-  local prev_space_padding = space_paddings[last_workspace]
+    local prev_space = spaces[last_workspace]
+    local prev_space_bracket = brackets[last_workspace]
+    local prev_space_padding = space_paddings[last_workspace]
 
-  sbar.animate("tanh", 10, function()
-    -- highlight the newly focused workspace
-    highlightWorkspace(space, space_padding, space_bracket, true)
-    -- if the new workspace is on the same monitor, unhighlight the previous one
-    if state.workspaces[last_workspace]["monitor"] == state.workspaces[focused_workspace]["monitor"] then
-      highlightWorkspace(prev_space, prev_space_padding, prev_space_bracket, false)
-    end
-  end)
+    sbar.animate("tanh", 10, function()
+      -- highlight the newly focused workspace
+      highlightWorkspace(space, space_padding, space_bracket, true)
+      -- if the new workspace is on the same monitor, unhighlight the previous one
+      if state.workspaces[last_workspace]["monitor"] == state.workspaces[focused_workspace]["monitor"] then
+        highlightWorkspace(prev_space, prev_space_padding, prev_space_bracket, false)
+      end
+    end)
+  end
 
   updateCurrentStateAndSync()
 end

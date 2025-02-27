@@ -279,7 +279,7 @@ local function onActiveWorkspaceChange(env)
   -- in certain circumstances, the change workspace event won't have the env vars
   -- example: when moving a workspace between monitors
   -- in that case, we just skip the quick update highlight stuff and go to a full system state sync
-  if focused_workspace ~= nil and last_workspace ~= nil then
+  if focused_workspace ~= nil and last_workspace ~= nil and state.workspaces and state.workspaces[last_workspace] and state.workspaces[focused_workspace] then
     print("aerospace_workspace_change from " .. last_workspace .. " to " .. focused_workspace)
 
     local space = spaces[focused_workspace]

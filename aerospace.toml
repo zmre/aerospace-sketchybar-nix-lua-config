@@ -183,6 +183,10 @@ if.app-id = 'io.freetubeapp.freetube'
 run = ['move-node-to-workspace Y']
 
 [[on-window-detected]]
+if.app-id = 'io.mpv'
+run = ['move-node-to-workspace Y']
+
+[[on-window-detected]]
 if.app-id = 'co.noteplan.NotePlan3'
 run = ['move-node-to-workspace N']
 
@@ -385,7 +389,6 @@ esc = ['reload-config', 'mode main']
 r = [ # reset layout and restart sketchy etc
   'flatten-workspace-tree', 
   'reload-config', 
-  'exec-and-forget killall sketchybar borders',
   'exec-and-forget BORDERSBIN active_color=0xffe1e3e4 inactive_color=0xff494d64 width=3.0',
   'exec-and-forget SKETCHYBARBIN -c NIXPATHTOSKETCHYCONFIG',
   'exec-and-forget SKETCHYBARBIN --trigger aerospace_started',

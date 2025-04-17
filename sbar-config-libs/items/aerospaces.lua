@@ -56,6 +56,15 @@ local state = {
   workspaces = {},
   menubar_on = false,
   updating = false,
+  sticky_windows = {},
+  focused_workspace = 0,
+}
+
+local sticky_window_titles = {
+  ["Picture-in-picture"] = true,
+  ["Picture-in-Picture"] = true,
+  ["Picture in Picture"] = true,
+  ["Picture in picture"] = true
 }
 
 local function syncBarToGlobalState()
@@ -161,7 +170,7 @@ end
 
 local function getAllWindows()
   return sbarExecPromise(
-    "aerospace list-windows --all --format '%{app-name}%{window-title}%{workspace}%{monitor-id}%{monitor-appkit-nsscreen-screens-id}%{monitor-name}' --json"
+    "aerospace list-windows --all --format '%{window-id}%{app-name}%{window-title}%{workspace}%{monitor-id}%{monitor-appkit-nsscreen-screens-id}%{monitor-name}' --json"
   )
 end
 
@@ -170,9 +179,15 @@ local function getVisibleWorkspaces()
     "aerospace list-workspaces --visible --monitor all --format '%{workspace}%{monitor-appkit-nsscreen-screens-id}%{monitor-id}%{monitor-name}' --json")
 end
 
+local function sendWindowToWorkspace(window_id, workspace_id)
+  return sbarExecPromise(
+    "aerospace move-node-to-workspace --window-id \"" .. window_id .. "\" \"" .. workspace_id .. "\"")
+end
+
 local function getCurrentState()
   local newstate = {
     workspaces = {},
+    sticky_windows = {},
   }
 
   for workspaceid, space in pairs(spaces) do
@@ -210,6 +225,10 @@ local function getCurrentState()
       local appname = window["app-name"]
       newstate.workspaces[workspaceid]["apps"][appname] = true
       newstate.workspaces[workspaceid]["empty"] = false
+      -- now handle sticky window state
+      if sticky_window_titles[window["window-title"]] then
+        table.insert(newstate.sticky_windows, window)
+      end
     end
 
     -- lookup icons for each app looping through all workspaces
@@ -246,16 +265,27 @@ local function updateCurrentState()
       -- IMPROVEMENT: maybe calculate diffs for a partial update in-place in existing global? Not sure on memory
       --              implications of the current approach though it should be more atomic-ish
       state.workspaces = newstate.workspaces
+      state.sticky_windows = newstate.sticky_windows
       state.updating = false
     end)
   end
   return Promise.reject('State is already updating')
 end
 
-local function updateCurrentStateAndSync()
-  return updateCurrentState():thenCall(syncBarToGlobalState)
+local function moveStickyToCurrentWorkspace()
+  for _, window in ipairs(state.sticky_windows) do
+    -- if it's on an active workspace on any monitor, just leave it
+    if not state.workspaces[window["workspace"]]["active"] then
+      -- if it isn't on an active workspace, then move it to the current
+      -- focused workspace
+      sendWindowToWorkspace(window["window-id"], state.focused_workspace)
+    end
+  end
 end
 
+local function updateCurrentStateAndSync()
+  return updateCurrentState():thenCall(moveStickyToCurrentWorkspace):thenCall(syncBarToGlobalState)
+end
 
 local function highlightWorkspace(space, space_padding, space_bracket, selected)
   space:set({
@@ -276,6 +306,10 @@ end
 local function onActiveWorkspaceChange(env)
   local focused_workspace = env.FOCUSED_WORKSPACE
   local last_workspace = env.PREV_WORKSPACE
+
+  -- breaking the rule about updating the global state outside of sync stuff
+  state.focused_workspace = focused_workspace
+
   -- in certain circumstances, the change workspace event won't have the env vars
   -- example: when moving a workspace between monitors
   -- in that case, we just skip the quick update highlight stuff and go to a full system state sync

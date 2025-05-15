@@ -32,10 +32,7 @@
         '';
         nativeBuildInputs = with pkgs;
           [gcc readline clang stdenv]
-          ++ lib.optionals stdenv.isDarwin
-          (with pkgs.darwin.apple_sdk.frameworks; [
-            CoreFoundation
-          ]);
+          ++ lib.optionals stdenv.isDarwin [pkgs.apple-sdk];
       };
 
       # These sketchybar lua configs are littered with nested callbacks; I'd rather

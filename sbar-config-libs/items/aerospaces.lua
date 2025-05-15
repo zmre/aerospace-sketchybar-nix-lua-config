@@ -64,7 +64,8 @@ local sticky_window_titles = {
   ["Picture-in-picture"] = true,
   ["Picture-in-Picture"] = true,
   ["Picture in Picture"] = true,
-  ["Picture in picture"] = true
+  ["Picture in picture"] = true,
+  ["MiniPlayer"] = true, -- Music's mini player
 }
 
 local function syncBarToGlobalState()
@@ -347,6 +348,9 @@ local function hideAerospaceError()
 end
 
 local function initialize()
+  sbar.add("event", "aerospace_started")
+  sbar.add("event", "swap_menus_and_spaces")
+
   errorMessageItem = sbar.add("item", "error", {
     drawing = false,
     updates = "when_shown", -- only listen for aerospace startup if an error is showing

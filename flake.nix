@@ -7,6 +7,8 @@
     sbarlua.flake = false;
     promise-lua.url = "github:pyericz/promise-lua";
     promise-lua.flake = false;
+    sketchybar.url = "github:FelixKratz/SketchyBar";
+    sketchybar.flake = false;
   };
   outputs = inputs @ {
     self,
@@ -18,7 +20,13 @@
       pkgs = import nixpkgs {
         inherit system;
         config = {allowUnfree = true;};
-        overlays = [];
+        overlays = [
+          (final: prev: {
+            sketchybar = prev.sketchybar.overrideAttrs (oldAttrs: {
+              src = inputs.sketchybar;
+            });
+          })
+        ];
       };
       # This is the interface to sketchybar for lua
       sbar = pkgs.lua54Packages.buildLuaPackage {

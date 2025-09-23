@@ -55,7 +55,8 @@
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",
         "promise-lua": "promise-lua",
-        "sbarlua": "sbarlua"
+        "sbarlua": "sbarlua",
+        "sketchybar": "sketchybar"
       }
     },
     "sbarlua": {
@@ -71,6 +72,22 @@
       "original": {
         "owner": "FelixKratz",
         "repo": "SbarLua",
+        "type": "github"
+      }
+    },
+    "sketchybar": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1757600385,
+        "narHash": "sha256-6fVcQPRqMI7nWfj4bPMt/myK5uYNtjZQ3gvO48UP2AI=",
+        "owner": "FelixKratz",
+        "repo": "SketchyBar",
+        "rev": "1b751317d6ab4d48d4a58f209425d5560b8ed38b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "FelixKratz",
+        "repo": "SketchyBar",
         "type": "github"
       }
     },

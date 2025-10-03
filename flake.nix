@@ -1,5 +1,5 @@
 {
-  description = "A config for aerospace and sketchybar that's reproducible and performant";
+  description = "A config for aerospace and sketchybar that's reproducible and performant.";
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";

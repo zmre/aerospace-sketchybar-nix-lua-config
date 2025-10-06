@@ -49,7 +49,11 @@ default-root-container-orientation = 'auto'
 # See https://nikitabobko.github.io/AeroSpace/guide#on-focus-changed-callbacks
 # See https://nikitabobko.github.io/AeroSpace/commands#move-mouse
 # Fallback value (if you omit the key): on-focused-monitor-changed = []
-on-focused-monitor-changed = ['move-mouse monitor-lazy-center']
+#
+# Turns out, I liked this behavior sometimes, but if I wanted to click to open three links in an email,
+# after each one my mouse would jump and I'd have to get it back, which was super annoying
+#on-focused-monitor-changed = ['move-mouse monitor-lazy-center']
+on-focused-monitor-changed = []
 
 # You can effectively turn off macOS "Hide application" (cmd-h) feature by toggling this flag
 # Useful if you don't use this macOS feature, but accidentally hit cmd-h or cmd-alt-h key

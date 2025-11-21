@@ -175,6 +175,7 @@ run = ['layout floating']
 
 [[on-window-detected]]
 if.app-name-regex-substring = 'BlockBlock Alert'
+check-further-callbacks = false
 run = ['layout floating']
 
 [[on-window-detected]]
@@ -183,6 +184,7 @@ run = ['layout floating']
 
 [[on-window-detected]]
 if.app-id = 'com.markmcguill.strongbox.mac'
+check-further-callbacks = false
 run = ['layout floating']
 
 [[on-window-detected]]
@@ -206,6 +208,10 @@ check-further-callbacks = false
 [[on-window-detected]]
 if.app-id = 'com.mitchellh.ghostty'
 run = ['layout floating']
+
+[[on-window-detected]]
+if.app-id = 'com.apple.TV'
+run = ['move-node-to-workspace Y']
 
 [[on-window-detected]]
 if.app-id = 'io.freetubeapp.freetube'

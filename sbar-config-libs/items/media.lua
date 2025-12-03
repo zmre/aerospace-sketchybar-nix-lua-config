@@ -2,7 +2,7 @@ local icons = require("sbar-config-libs/icons")
 local colors = require("sbar-config-libs/colors")
 
 local whitelist = {
-  ["Spotify"] = true,
+  ["Spotify"] = false,
   ["Music"] = true
 };
 
@@ -86,6 +86,7 @@ local function animate_detail(detail)
 end
 
 media_cover:subscribe("media_change", function(env)
+  print("media changed")
   if whitelist[env.INFO.app] then
     local drawing = (env.INFO.state == "playing")
     media_artist:set({ drawing = drawing, label = env.INFO.artist, })

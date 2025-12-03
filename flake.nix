@@ -93,6 +93,33 @@
         text = builtins.replaceStrings ["NIXPATHTOSKETCHYCONFIG" "NIXPATHTOBINARIES" "SKETCHYBARBIN" "AEROSPACEBIN" "BORDERSBIN"] ["${sketchybar-config}/bin/sketchybarrc" "${l}/bin:${pkgs.sketchybar}/bin:${pkgs.jankyborders}/bin:${pkgs.aerospace}/bin" "${pkgs.sketchybar}/bin/sketchybar" "${pkgs.aerospace}/bin/aerospace" "${pkgs.jankyborders}/bin/borders"] (pkgs.lib.readFile ./aerospace.toml);
       };
 
+      pwaerospacepkg = pkgs.symlinkJoin (let
+        dependencies = [
+          pkgs.aerospace
+          pkgs.sketchybar
+          pkgs.sketchybar-app-font
+          pkgs.jankyborders
+          pkgs.nowplaying-cli
+        ];
+      in {
+        name = "pwaerospace-full";
+        paths =
+          dependencies
+          ++ [
+            sbar-config-libs
+            aerospace-launcher
+            sketchybar-config
+            aerospace-config
+          ];
+        # buildInputs = [ ];
+        nativeBuildInputs = [pkgs.makeBinaryWrapper];
+        postBuild = ''
+          wrapProgramBinary $out/Applications/AeroSpace.app/Contents/MacOS/AeroSpace \
+            --prefix PATH : ${pkgs.lib.makeBinPath dependencies} \
+            --add-flags "--config-path ${aerospace-config}/share/aerospace.toml"
+        '';
+      });
+
       aerospace-launcher = pkgs.writeShellApplication {
         name = "pwaerospace";
         text = ''
@@ -103,26 +130,7 @@
         '';
       };
     in rec {
-      packages.pwaerospace = pkgs.symlinkJoin {
-        name = "pwaerospace-full";
-        paths = [
-          pkgs.aerospace
-          pkgs.sketchybar
-          pkgs.sketchybar-app-font
-          pkgs.jankyborders
-          sbar-config-libs
-          aerospace-launcher
-          sketchybar-config
-          aerospace-config
-        ];
-        # buildInputs = [ ];
-        nativeBuildInputs = [pkgs.makeBinaryWrapper];
-        postBuild = ''
-          wrapProgramBinary $out/Applications/AeroSpace.app/Contents/MacOS/AeroSpace \
-            --add-flags "--config-path ${aerospace-config}/share/aerospace.toml"
-
-        '';
-      };
+      packages.pwaerospace = pwaerospacepkg;
       packages.default = packages.pwaerospace;
       apps.pwaerospace = flake-utils.lib.mkApp {
         drv = packages.pwaerospace;
@@ -131,7 +139,7 @@
       };
       apps.default = apps.pwaerospace;
       devShell = pkgs.mkShell {
-        buildInputs = [l packages.pwaerospace pkgs.aerospace pkgs.jankyborders pkgs.sketchybar];
+        buildInputs = [l packages.pwaerospace pkgs.aerospace pkgs.jankyborders pkgs.sketchybar pkgs.nowplaying-cli];
       };
     });
 }

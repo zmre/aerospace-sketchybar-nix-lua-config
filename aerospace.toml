@@ -105,6 +105,10 @@ if.app-id = 'com.github.wez.wezterm'
 run = ['move-node-to-workspace W']
 
 [[on-window-detected]]
+if.app-id = 'com.googlecode.iterm2'
+run = ['move-node-to-workspace I']
+
+[[on-window-detected]]
 if.app-id = 'com.kagi.kagimacOS'
 run = ['move-node-to-workspace O']
 

@@ -23,9 +23,7 @@ exec-on-workspace-change = ['/bin/bash', '-c',
   'SKETCHYBARBIN --trigger aerospace_workspace_change FOCUSED_WORKSPACE=$AEROSPACE_FOCUSED_WORKSPACE PREV_WORKSPACE=$AEROSPACE_PREV_WORKSPACE'
 ]
 
-# You could turn this on and I think it would work okay, but I have a login item I manage with
-# home-manager that gives me more control.
-start-at-login = false
+start-at-login = true
 
 # Normalizations. See: https://nikitabobko.github.io/AeroSpace/guide#normalization
 enable-normalization-flatten-containers = true

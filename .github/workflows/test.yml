@@ -20,12 +20,8 @@ jobs:
     strategy:
       matrix:
         build:
-          - linux64
           - macos-arm
         include:
-          - build: linux64
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
           - build: macos-arm
             os: macos-latest
             target: aarch64-apple-darwin
@@ -41,5 +37,4 @@ jobs:
         with:
           name: zmre
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
-          extraPullNames: nix-community zmre
       - run: nix build

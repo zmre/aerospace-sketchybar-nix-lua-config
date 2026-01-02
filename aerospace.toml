@@ -107,10 +107,6 @@ if.app-id = 'com.googlecode.iterm2'
 run = ['move-node-to-workspace I']
 
 [[on-window-detected]]
-if.app-id = 'com.kagi.kagimacOS'
-run = ['move-node-to-workspace O']
-
-[[on-window-detected]]
 if.app-id = 'com.apple.mail'
 run = ['move-node-to-workspace E']
 
@@ -128,10 +124,14 @@ run = ['move-node-to-workspace E']
 if.app-id = 'com.apple.Safari'
 run = ['move-node-to-workspace B']
 
+[[on-window-detected]]
+if.app-name-regex-substring = 'Reader'
+run = ['move-node-to-workspace B']
 
+# Orion browser send to its own workspace, O
 [[on-window-detected]]
 if.app-id = 'com.kagi.kagimacOS'
-run = ['move-node-to-workspace B']
+run = ['move-node-to-workspace O']
 
 [[on-window-detected]]
 if.app-id = 'com.apple.iCal'
@@ -233,6 +233,10 @@ run = ['move-node-to-workspace N']
 
 [[on-window-detected]]
 if.app-id = 'com.neovide.neovide'
+run = ['move-node-to-workspace N']
+
+[[on-window-detected]]
+if.app-id = 'com.apple.Notes'
 run = ['move-node-to-workspace N']
 
 [[on-window-detected]]

@@ -269,7 +269,7 @@ inner.horizontal = [ {monitor."built-in" = 6}, 10 ]
 inner.vertical =   [ {monitor."built-in" = 6}, 10 ]
 outer.left =       [ {monitor."built-in" = 6}, 10 ]
 outer.bottom =     [ {monitor."built-in" = 6}, 10 ]
-outer.top =        [ {monitor."built-in" = 6}, 46]
+outer.top =        [ {monitor."built-in" = 6}, {monitor."RODE_RCV" = 0}, 46]
 outer.right =      [ {monitor."built-in" = 6}, 10 ]
 
 [workspace-to-monitor-force-assignment]

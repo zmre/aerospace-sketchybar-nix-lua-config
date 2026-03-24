@@ -2,11 +2,41 @@ local icons = require("sbar-config-libs/icons")
 local colors = require("sbar-config-libs/colors")
 local settings = require("sbar-config-libs/settings")
 
--- Execute the event provider binary which provides the event "network_update"
--- for the network interface "en0", which is fired every 2.0 seconds.
-sbar.exec(
-  "killall network_load >/dev/null; " ..
-  base_dir .. "/helpers/event_providers/network_load/bin/network_load en0 network_update 2.0")
+local current_iface = "en0"
+local current_service = "Wi-Fi"
+
+local function get_default_interface(callback)
+  sbar.exec("route -n get default 2>/dev/null | awk '/interface/{print $2}'", function(iface)
+    iface = iface:gsub("%s+", "")
+    if iface == "" then
+      callback(nil, nil)
+      return
+    end
+    sbar.exec(
+      "networksetup -listnetworkserviceorder | grep -B1 'Device: " .. iface .. ")' | head -1 | sed 's/^([0-9]*) //'",
+      function(service)
+        service = service:gsub("%s+$", "")
+        callback(iface, service)
+      end
+    )
+  end)
+end
+
+local function restart_network_load(iface)
+  sbar.exec(
+    "killall network_load >/dev/null; " ..
+    base_dir .. "/helpers/event_providers/network_load/bin/network_load " .. iface .. " network_update 2.0"
+  )
+end
+
+-- Detect the primary network interface and start the event provider
+get_default_interface(function(iface, service)
+  if iface then
+    current_iface = iface
+    current_service = service ~= "" and service or iface
+  end
+  restart_network_load(current_iface)
+end)
 
 local popup_width = 250
 
@@ -176,14 +206,23 @@ wifi_up:subscribe("network_update", function(env)
 end)
 
 wifi:subscribe({ "wifi_change", "system_woke" }, function(env)
-  sbar.exec("ipconfig getifaddr en0", function(ip)
-    local connected = not (ip == "")
-    wifi:set({
-      icon = {
-        string = connected and icons.wifi.connected or icons.wifi.disconnected,
-        color = connected and colors.white or colors.red,
-      },
-    })
+  get_default_interface(function(iface, service)
+    if iface then
+      if iface ~= current_iface then
+        current_iface = iface
+        current_service = service ~= "" and service or iface
+        restart_network_load(current_iface)
+      end
+    end
+    sbar.exec("ipconfig getifaddr " .. current_iface, function(result)
+      local connected = not (result == "")
+      wifi:set({
+        icon = {
+          string = connected and icons.wifi.connected or icons.wifi.disconnected,
+          color = connected and colors.white or colors.red,
+        },
+      })
+    end)
   end)
 end)
 
@@ -198,16 +237,20 @@ local function toggle_details()
     sbar.exec("networksetup -getcomputername", function(result)
       hostname:set({ label = result })
     end)
-    sbar.exec("ipconfig getifaddr en0", function(result)
+    sbar.exec("ipconfig getifaddr " .. current_iface, function(result)
       ip:set({ label = result })
     end)
-    sbar.exec("ipconfig getsummary en0 | awk -F ' SSID : '  '/ SSID : / {print $2}'", function(result)
-      ssid:set({ label = result })
-    end)
-    sbar.exec("networksetup -getinfo Wi-Fi | awk -F 'Subnet mask: ' '/^Subnet mask: / {print $2}'", function(result)
+    if current_service == "Wi-Fi" then
+      sbar.exec("ipconfig getsummary " .. current_iface .. " | awk -F ' SSID : '  '/ SSID : / {print $2}'", function(result)
+        ssid:set({ label = result })
+      end)
+    else
+      ssid:set({ label = current_service })
+    end
+    sbar.exec("networksetup -getinfo '" .. current_service .. "' | awk -F 'Subnet mask: ' '/^Subnet mask: / {print $2}'", function(result)
       mask:set({ label = result })
     end)
-    sbar.exec("networksetup -getinfo Wi-Fi | awk -F 'Router: ' '/^Router: / {print $2}'", function(result)
+    sbar.exec("networksetup -getinfo '" .. current_service .. "' | awk -F 'Router: ' '/^Router: / {print $2}'", function(result)
       router:set({ label = result })
     end)
   else

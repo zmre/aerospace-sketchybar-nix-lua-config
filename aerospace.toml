@@ -455,10 +455,10 @@ f = ["exec-and-forget osascript -e 'tell application \"Finder\" to make new Find
 # sticky is not yet supported https://github.com/nikitabobko/AeroSpace/issues/2
 #s = ['layout sticky tiling', 'mode main']
 
-alt-shift-h = ['join-with left', 'mode main']
-alt-shift-j = ['join-with down', 'mode main']
-alt-shift-k = ['join-with up', 'mode main']
-alt-shift-l = ['join-with right', 'mode main']
+# alt-shift-h = ['join-with left', 'mode main']
+# alt-shift-j = ['join-with down', 'mode main']
+# alt-shift-k = ['join-with up', 'mode main']
+# alt-shift-l = ['join-with right', 'mode main']
 
 down = 'volume down'
 up = 'volume up'

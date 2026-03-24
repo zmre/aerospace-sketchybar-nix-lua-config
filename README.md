@@ -35,6 +35,8 @@ At present I tweak and test by cloning this repo and then just locally doing:
 
 That will kill off any running processes and start them back up fresh with new configs. It holds the apps in the foreground and print statements go to the console.  I'll add directions for how to include this from your system config later.
 
+Note: if you want to click on the wifi fan to see the current wifi network, you'll get "<redacted>" by default. Running `sudo ipconfig setverbose 1` fixes this.  I've added it to a system activation script so it gets setup automatically. I don't know if it needs to run on startup or not, but it may.
+
 ## Home manager
 
 In my system config, I install this flake and then have it launch on startup by adding the below to my home-manager.

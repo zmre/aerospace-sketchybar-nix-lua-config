@@ -29,14 +29,14 @@
         ];
       };
       # This is the interface to sketchybar for lua
-      sbar = pkgs.lua54Packages.buildLuaPackage {
+      sbar = pkgs.lua55Packages.buildLuaPackage {
         name = "sbar";
         pname = "sbar";
         version = "1";
         src = inputs.sbarlua;
         installPhase = ''
-          mkdir -p $out/lib/lua/5.4
-          cp bin/sketchybar.so $out/lib/lua/5.4/
+          mkdir -p $out/lib/lua/5.5
+          cp bin/sketchybar.so $out/lib/lua/5.5/
         '';
         nativeBuildInputs = with pkgs;
           [gcc readline clang stdenv]
@@ -47,7 +47,7 @@
       # be able to sequence things or to collect values from several shell calls
       # and then move forward using promises, but none seem to exist in stock lua
       # or in nixpkgs. :-(
-      promise-lua = pkgs.lua54Packages.buildLuarocksPackage {
+      promise-lua = pkgs.lua55Packages.buildLuarocksPackage {
         pname = "promise-lua";
         src = inputs.promise-lua;
         version = "0.4.1-1";
@@ -70,19 +70,19 @@
 
         # Install Lua files to the correct directory
         installPhase = ''
-          mkdir -p $out/share/lua/5.4/sbar-config-libs
-          cp -r sbar-config-libs $out/share/lua/5.4/
+          mkdir -p $out/share/lua/5.5/sbar-config-libs
+          cp -r sbar-config-libs $out/share/lua/5.5/
         '';
       };
 
       # I thought using the lua withPackages stuff would add those things to the path and cpath, but I must be doing something wrong :(
-      l = pkgs.lua5_4.withPackages (ps: with ps; [luafilesystem sbar sbar-config-libs promise-lua]);
+      l = pkgs.lua5_5.withPackages (ps: with ps; [luafilesystem sbar sbar-config-libs promise-lua]);
       sketchybar-config = pkgs.writeScriptBin "sketchybarrc" ''
         #!${l}/bin/lua
 
-        package.path = package.path .. ";${sbar-config-libs}/share/lua/5.4/?.lua;${sbar-config-libs}/share/lua/5.4/?/init.lua"
+        package.path = package.path .. ";${sbar-config-libs}/share/lua/5.5/?.lua;${sbar-config-libs}/share/lua/5.5/?/init.lua"
 
-        base_dir = "${sbar-config-libs}/share/lua/5.4/sbar-config-libs"
+        base_dir = "${sbar-config-libs}/share/lua/5.5/sbar-config-libs"
 
         require("sbar-config-libs/init")
       '';

@@ -4,12 +4,17 @@ local settings = require("sbar-config-libs/settings")
 local app_icons = require("sbar-config-libs/helpers.app_icons")
 local Promise = require 'promise'
 
-local function dump(o)
+local function dump(o, seen)
   if type(o) == 'table' then
+    seen = seen or {}
+    if seen[o] then
+      return '<cycle>'
+    end
+    seen[o] = true
     local s = '{ '
     for k, v in pairs(o) do
       local key = type(k) ~= 'number' and ('"' .. k .. '"') or k
-      s = s .. '[' .. key .. '] = ' .. dump(v) .. ','
+      s = s .. '[' .. key .. '] = ' .. dump(v, seen) .. ','
     end
     return s .. '} '
   else
@@ -102,7 +107,7 @@ local function createWorkspaceItem(workspaceid, display)
       height = 26,
       border_color = colors.black,
     },
-    click_script = "aerospace workspace " .. workspaceid,
+    click_script = "aerospace workspace '" .. workspaceid .. "'",
   })
 
   spaces[workspaceid] = space
@@ -227,16 +232,13 @@ end
 -- Function below is an awful hack, but the aerospace monitor ids and the sketchybar monitorids don't line up
 -- They both seem to get the primary monitor as 1 if you use aerospace's alternate monitor-appkit-nsscreen-screens-id
 -- field, which means in a dual monitor setup they'll pretty much always work out right. But in a three monitor setup,
--- they diverge -- or they can diverge.  They do for me.  So I've hard coded monitor names and values
--- as an ugly hack.
+-- they diverge -- or they can diverge.  They do for me.  So the overrides live in
+-- settings.monitor_name_to_sketchybar_id.
 -- See: https://github.com/nikitabobko/AeroSpace/issues/336 which is closed/resolved but compatibility is still awful
 local function getSketchyMonitorIdFrom(objWithMonitorInfo)
-  if objWithMonitorInfo["monitor-name"] then
-    if objWithMonitorInfo["monitor-name"] == "LG Ultra HD" then
-      return "2"
-    elseif objWithMonitorInfo["monitor-name"] == "RODE_RCV" then
-      return "3"
-    end
+  local mapped = settings.monitor_name_to_sketchybar_id[objWithMonitorInfo["monitor-name"] or ""]
+  if mapped then
+    return mapped
   end
   if objWithMonitorInfo["monitor-appkit-nsscreen-screens-id"] then
     return objWithMonitorInfo["monitor-appkit-nsscreen-screens-id"]
@@ -248,13 +250,9 @@ local function sbarExecPromise(cmd)
   return Promise.new(function(resolve, failfunc)
     sbar.exec(cmd, function(result, exit_code)
       if exit_code ~= 0 then
-        if failfunc ~= nil then
-          failfunc(string.format("Exit Code: %s Message: %s", tostring(exit_code), dump(result)))
-        end
+        failfunc(string.format("Exit Code: %s Message: %s", tostring(exit_code), dump(result)))
       else
-        if resolve ~= nil then
-          resolve(result)
-        end
+        resolve(result)
       end
     end)
   end)
@@ -319,7 +317,7 @@ local function getCurrentState()
     sticky_windows = {},
   }
 
-  for workspaceid, space in pairs(spaces) do
+  for workspaceid in pairs(spaces) do
     -- assume not visible and empty and we'll update
     ensureWorkspace(newstate.workspaces, workspaceid)
   end
@@ -600,10 +598,8 @@ local function initialize()
     space_window_observer:subscribe("front_app_switched", updateCurrentStateAndSync)
 
     -- only displayed and updated when there's already been an error
-    errorMessageItem:subscribe("aerospace_started", function(env)
-      hideAerospaceError()
-      updateCurrentStateAndSync()
-    end)
+    -- hideAerospaceError already triggers a full state update and sync
+    errorMessageItem:subscribe("aerospace_started", hideAerospaceError)
 
     spaces_indicator:subscribe("swap_menus_and_spaces", function(env)
       local currently_on = spaces_indicator:query().icon.value == icons.switch.on

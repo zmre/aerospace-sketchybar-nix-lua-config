@@ -55,7 +55,7 @@ local errorMessageItem = nil
 local state = {
   workspaces = {},
   menubar_on = false,
-  updating = false,
+  updating = nil, -- os.time() while an update holds the lock; nil when free
   update_pending = false,
   sticky_windows = {},
   focused_workspace = nil, -- unknown until fetched at startup or set by a workspace change event
@@ -115,7 +115,8 @@ local function onAerospaceError(reason)
   -- NOTE: do not touch state.updating here.  This runs for failures of any
   -- aerospace command, including ones outside the state-update chain, and an
   -- early release would let a second update overlap the one still in flight.
-  -- The lock is released only by updateCurrentState (success or catch).
+  -- The lock is released only by updateCurrentState (success or catch), or
+  -- stolen by updateCurrentStateAndSync once its timestamp goes stale.
 
   if errorMessageItem ~= nil then
     -- Manual set of error string on error menu item
@@ -288,25 +289,39 @@ local function getCurrentState()
   end)
 end
 
-local function updateCurrentState()
+-- The updating lock is a timestamp so it can't leak forever: if aerospace
+-- hangs and an exec callback never fires, the lock would otherwise stay held
+-- and every future update would be silently dropped until restart.
+local UPDATE_LOCK_TIMEOUT = 15 -- seconds
+
+local function updateLockIsHeld()
   if not state.updating then
-    state.updating = true
-    return getCurrentState():thenCall(function(newstate)
-      -- IMPROVEMENT: maybe calculate diffs for a partial update in-place in existing global? Not sure on memory
-      --              implications of the current approach though it should be more atomic-ish
-      state.workspaces = newstate.workspaces
-      state.sticky_windows = newstate.sticky_windows
-      state.updating = false
-    end):catch(function(reason)
-      -- If anything above errored we must release the lock, otherwise every
-      -- future update is silently rejected and the bar (and sticky windows)
-      -- freeze until restart.
-      state.updating = false
-      onAerospaceError(reason)
-      error(reason)
-    end)
+    return false
   end
-  return Promise.reject('State is already updating')
+  if os.time() - state.updating > UPDATE_LOCK_TIMEOUT then
+    print("Warning: state update lock is stale (held > " .. UPDATE_LOCK_TIMEOUT .. "s); stealing it")
+    return false
+  end
+  return true
+end
+
+local function updateCurrentState()
+  -- the caller (updateCurrentStateAndSync) checks the lock before calling
+  state.updating = os.time()
+  return getCurrentState():thenCall(function(newstate)
+    -- IMPROVEMENT: maybe calculate diffs for a partial update in-place in existing global? Not sure on memory
+    --              implications of the current approach though it should be more atomic-ish
+    state.workspaces = newstate.workspaces
+    state.sticky_windows = newstate.sticky_windows
+    state.updating = nil
+  end):catch(function(reason)
+    -- If anything above errored we must release the lock, otherwise every
+    -- future update is silently rejected and the bar (and sticky windows)
+    -- freeze until restart.
+    state.updating = nil
+    onAerospaceError(reason)
+    error(reason)
+  end)
 end
 
 local function moveStickyToCurrentWorkspace()
@@ -326,7 +341,7 @@ local function moveStickyToCurrentWorkspace()
 end
 
 local function updateCurrentStateAndSync()
-  if state.updating then
+  if updateLockIsHeld() then
     -- an update is already in flight and its snapshot may predate the event
     -- that got us here, so ask it to run again when it finishes instead of
     -- dropping this request
@@ -358,6 +373,7 @@ local function highlightWorkspace(space, space_padding, space_bracket, selected)
     drawing = true,
   })
   space_bracket:set({
+    drawing = true, -- show immediately on quick-switch to a hidden workspace
     background = { border_color = selected and colors.grey or colors.bg2 }
   })
 end
@@ -508,9 +524,13 @@ local function initialize()
       end)
 
       space:subscribe("mouse.exited", function(env)
+        -- restore the active highlight on the focused workspace instead of
+        -- unconditionally clearing the border
+        local ws = state.workspaces[workspaceid]
+        local border = (ws and ws["active"]) and colors.grey or colors.bg2
         sbar.animate("tanh", 10, function()
           space_bracket:set({
-            background = { border_color = colors.bg2 }
+            background = { border_color = border }
           })
         end)
       end)
@@ -582,8 +602,10 @@ local function initialize()
 
       sbar.animate("tanh", 10, function()
         for workspaceid, space in pairs(spaces) do
-          local vis = (not currently_on and not state.workspaces[workspaceid].empty) or
-              state.workspaces[workspaceid].active
+          -- state.workspaces may not have this id yet if the first sync
+          -- hasn't completed; treat unknown as hidden
+          local ws = state.workspaces[workspaceid]
+          local vis = ws ~= nil and ((not currently_on and not ws.empty) or ws.active)
           space:set({ drawing = vis })
           space_paddings[workspaceid]:set({ drawing = vis })
           brackets[workspaceid]:set({ drawing = vis })

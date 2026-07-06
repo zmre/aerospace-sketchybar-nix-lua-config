@@ -62,6 +62,7 @@ local state = {
   menubar_on = false,
   updating = nil, -- os.time() while an update holds the lock; nil when free
   update_pending = false,
+  bar_dirty = false, -- a quick highlight painted outside of state; force next repaint
   sticky_windows = {},
   focused_workspace = nil, -- unknown until fetched at startup or set by a workspace change event
 }
@@ -392,15 +393,40 @@ local function updateLockIsHeld()
   return true
 end
 
+-- Compare only the fields syncBarToGlobalState actually paints; when nothing
+-- changed the repaint can be skipped (front_app_switched fires on every app
+-- switch and usually changes nothing).
+local function workspacesEqual(a, b)
+  for workspaceid, wa in pairs(a) do
+    local wb = b[workspaceid]
+    if wb == nil
+        or wa["monitor"] ~= wb["monitor"]
+        or wa["active"] ~= wb["active"]
+        or wa["empty"] ~= wb["empty"]
+        or wa["appicons"] ~= wb["appicons"] then
+      return false
+    end
+  end
+  for workspaceid in pairs(b) do
+    if a[workspaceid] == nil then
+      return false
+    end
+  end
+  return true
+end
+
+-- resolves with true when the workspace state changed since the last update
 local function updateCurrentState()
   -- the caller (updateCurrentStateAndSync) checks the lock before calling
   state.updating = os.time()
   return getCurrentState():thenCall(function(newstate)
     -- IMPROVEMENT: maybe calculate diffs for a partial update in-place in existing global? Not sure on memory
     --              implications of the current approach though it should be more atomic-ish
+    local changed = not workspacesEqual(state.workspaces, newstate.workspaces)
     state.workspaces = newstate.workspaces
     state.sticky_windows = newstate.sticky_windows
     state.updating = nil
+    return changed
   end):catch(function(reason)
     -- If anything above errored we must release the lock, otherwise every
     -- future update is silently rejected and the bar (and sticky windows)
@@ -442,8 +468,15 @@ local function updateCurrentStateAndSync()
     end
   end
   return updateCurrentState()
-      :thenCall(moveStickyToCurrentWorkspace)
-      :thenCall(syncBarToGlobalState)
+      :thenCall(function(changed)
+        moveStickyToCurrentWorkspace()
+        -- skip the repaint when nothing changed, unless a quick highlight
+        -- painted the bar outside of state and it needs to be trued up
+        if changed or state.bar_dirty then
+          state.bar_dirty = false
+          syncBarToGlobalState()
+        end
+      end)
       -- run any coalesced request on the failure path too, or a rejection
       -- both drops that event and strands the pending flag
       :thenCall(runPendingUpdate, runPendingUpdate)
@@ -492,6 +525,7 @@ local function onActiveWorkspaceChange(env)
     local prev_space_bracket = brackets[last_workspace]
     local prev_space_padding = space_paddings[last_workspace]
 
+    state.bar_dirty = true
     sbar.animate("tanh", 10, function()
       -- highlight the newly focused workspace
       highlightWorkspace(space, space_padding, space_bracket, true)

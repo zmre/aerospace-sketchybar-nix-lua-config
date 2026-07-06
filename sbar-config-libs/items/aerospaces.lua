@@ -56,8 +56,9 @@ local state = {
   workspaces = {},
   menubar_on = false,
   updating = false,
+  update_pending = false,
   sticky_windows = {},
-  focused_workspace = 0,
+  focused_workspace = nil, -- unknown until fetched at startup or set by a workspace change event
 }
 
 local sticky_window_titles = {
@@ -73,7 +74,9 @@ local function syncBarToGlobalState()
   -- or is there a way to batch changes?  Maybe animate does this already?
   sbar.animate("tanh", 10, function()
     for workspaceid, workspacestate in pairs(state.workspaces) do
-      if (not state.menubar_on and not workspacestate["empty"]) or workspacestate["active"] then
+      if spaces[workspaceid] == nil then
+        -- workspace appeared after init so it has no bar item; nothing to draw
+      elseif (not state.menubar_on and not workspacestate["empty"]) or workspacestate["active"] then
         -- These should be visible
         spaces[workspaceid]:set({
           drawing = true,
@@ -109,7 +112,10 @@ end
 local function onAerospaceError(reason)
   print("Got error trying to run aerospace command: " .. (reason and dump(reason) or "unknown"))
 
-  state.updating = false
+  -- NOTE: do not touch state.updating here.  This runs for failures of any
+  -- aerospace command, including ones outside the state-update chain, and an
+  -- early release would let a second update overlap the one still in flight.
+  -- The lock is released only by updateCurrentState (success or catch).
 
   if errorMessageItem ~= nil then
     -- Manual set of error string on error menu item
@@ -180,9 +186,41 @@ local function getVisibleWorkspaces()
     "aerospace list-workspaces --visible --monitor all --format '%{workspace}%{monitor-appkit-nsscreen-screens-id}%{monitor-id}%{monitor-name}' --json")
 end
 
+local function getFocusedWorkspace()
+  return sbarExecPromise("aerospace list-workspaces --focused --format '%{workspace}' --json")
+end
+
 local function sendWindowToWorkspace(window_id, workspace_id)
-  return sbarExecPromise(
-    "aerospace move-node-to-workspace --window-id \"" .. window_id .. "\" \"" .. workspace_id .. "\"")
+  -- Window ids can go stale at any moment (aerospace intermittently loses
+  -- track of Picture-in-Picture windows), so a failed move is routine here --
+  -- log it rather than treating it like aerospace is down.
+  return Promise.new(function(resolve, _)
+    sbar.exec("aerospace move-node-to-workspace --window-id \"" .. window_id .. "\" \"" .. workspace_id .. "\"",
+      function(result, exit_code)
+        if exit_code ~= 0 then
+          print("Failed to move window " .. tostring(window_id) .. " to workspace " .. tostring(workspace_id) ..
+            ": " .. dump(result))
+        end
+        resolve(result)
+      end)
+  end)
+end
+
+-- Workspaces can show up that we didn't know about at init time (created after
+-- startup, or a window reporting a workspace we've never seen).  We must never
+-- index them blindly: a single error inside the state update promise chain
+-- would leave the `updating` lock held forever and silently kill all updates.
+local function ensureWorkspace(workspaces, workspaceid)
+  if workspaces[workspaceid] == nil then
+    workspaces[workspaceid] = {
+      monitor = 0,
+      active = false,
+      empty = true,
+      apps = {},
+      appicons = ''
+    }
+  end
+  return workspaces[workspaceid]
 end
 
 local function getCurrentState()
@@ -193,13 +231,7 @@ local function getCurrentState()
 
   for workspaceid, space in pairs(spaces) do
     -- assume not visible and empty and we'll update
-    newstate.workspaces[workspaceid] = {
-      monitor = 0,
-      active = false,
-      empty = true,
-      apps = {},
-      appicons = ''
-    }
+    ensureWorkspace(newstate.workspaces, workspaceid)
   end
 
   local visiblePromise = getVisibleWorkspaces()
@@ -210,22 +242,19 @@ local function getCurrentState()
     local visible, all, apps = values[1], values[2], values[3]
     -- Assign workspaces to monitors
     for _, workspace in ipairs(all) do
-      local workspaceid = workspace["workspace"]
-      newstate.workspaces[workspaceid]["monitor"] = getSketchyMonitorIdFrom(workspace)
+      ensureWorkspace(newstate.workspaces, workspace["workspace"])["monitor"] = getSketchyMonitorIdFrom(workspace)
     end
 
     -- Make sure visible workspaces are marked as active
     for _, workspace in ipairs(visible) do
-      local workspaceid = workspace["workspace"]
-      newstate.workspaces[workspaceid]["active"] = true
+      ensureWorkspace(newstate.workspaces, workspace["workspace"])["active"] = true
     end
 
     -- figure out what apps are where and set "empty" flag appropriately
     for _, window in ipairs(apps) do
-      local workspaceid = window["workspace"]
-      local appname = window["app-name"]
-      newstate.workspaces[workspaceid]["apps"][appname] = true
-      newstate.workspaces[workspaceid]["empty"] = false
+      local workspacestate = ensureWorkspace(newstate.workspaces, window["workspace"])
+      workspacestate["apps"][window["app-name"]] = true
+      workspacestate["empty"] = false
       -- now handle sticky window state
       if sticky_window_titles[window["window-title"]] then
         table.insert(newstate.sticky_windows, window)
@@ -268,15 +297,27 @@ local function updateCurrentState()
       state.workspaces = newstate.workspaces
       state.sticky_windows = newstate.sticky_windows
       state.updating = false
+    end):catch(function(reason)
+      -- If anything above errored we must release the lock, otherwise every
+      -- future update is silently rejected and the bar (and sticky windows)
+      -- freeze until restart.
+      state.updating = false
+      print("Error updating state: " .. (reason and dump(reason) or "unknown"))
+      error(reason)
     end)
   end
   return Promise.reject('State is already updating')
 end
 
 local function moveStickyToCurrentWorkspace()
+  if not state.focused_workspace or state.focused_workspace == "" then
+    -- we don't know where the user is yet; moving windows would be a guess
+    return
+  end
   for _, window in ipairs(state.sticky_windows) do
     -- if it's on an active workspace on any monitor, just leave it
-    if not state.workspaces[window["workspace"]]["active"] then
+    local workspacestate = state.workspaces[window["workspace"]]
+    if not (workspacestate and workspacestate["active"]) then
       -- if it isn't on an active workspace, then move it to the current
       -- focused workspace
       sendWindowToWorkspace(window["window-id"], state.focused_workspace)
@@ -285,7 +326,25 @@ local function moveStickyToCurrentWorkspace()
 end
 
 local function updateCurrentStateAndSync()
-  return updateCurrentState():thenCall(moveStickyToCurrentWorkspace):thenCall(syncBarToGlobalState)
+  if state.updating then
+    -- an update is already in flight and its snapshot may predate the event
+    -- that got us here, so ask it to run again when it finishes instead of
+    -- dropping this request
+    state.update_pending = true
+    return Promise.resolve(nil)
+  end
+  local function runPendingUpdate()
+    if state.update_pending then
+      state.update_pending = false
+      return updateCurrentStateAndSync()
+    end
+  end
+  return updateCurrentState()
+      :thenCall(moveStickyToCurrentWorkspace)
+      :thenCall(syncBarToGlobalState)
+      -- run any coalesced request on the failure path too, or a rejection
+      -- both drops that event and strands the pending flag
+      :thenCall(runPendingUpdate, runPendingUpdate)
 end
 
 local function highlightWorkspace(space, space_padding, space_bracket, selected)
@@ -309,12 +368,17 @@ local function onActiveWorkspaceChange(env)
   local last_workspace = env.PREV_WORKSPACE
 
   -- breaking the rule about updating the global state outside of sync stuff
-  state.focused_workspace = focused_workspace
+  -- (manual triggers may omit the env vars; keep the last known value then)
+  if focused_workspace ~= nil and focused_workspace ~= "" then
+    state.focused_workspace = focused_workspace
+  end
 
   -- in certain circumstances, the change workspace event won't have the env vars
   -- example: when moving a workspace between monitors
   -- in that case, we just skip the quick update highlight stuff and go to a full system state sync
-  if focused_workspace ~= nil and last_workspace ~= nil and state.workspaces and state.workspaces[last_workspace] and state.workspaces[focused_workspace] then
+  -- also require actual bar items: state.workspaces can contain workspaces
+  -- created after init, which have no space/bracket/padding items to animate
+  if focused_workspace ~= nil and last_workspace ~= nil and state.workspaces and state.workspaces[last_workspace] and state.workspaces[focused_workspace] and spaces[focused_workspace] and spaces[last_workspace] then
     print("aerospace_workspace_change from " .. last_workspace .. " to " .. focused_workspace)
 
     local space = spaces[focused_workspace]
@@ -550,6 +614,12 @@ local function initialize()
     spaces_indicator:subscribe("mouse.clicked", function(_)
       sbar.trigger("swap_menus_and_spaces")
     end)
+  end):thenCall(getFocusedWorkspace):thenCall(function(focused)
+    -- learn where the user actually is before the first sticky-window sync;
+    -- otherwise sticky windows get moved to a workspace that doesn't exist
+    if focused and focused[1] then
+      state.focused_workspace = focused[1]["workspace"]
+    end
   end):thenCall(updateCurrentStateAndSync)
 end
 

@@ -69,14 +69,103 @@ local sticky_window_titles = {
   ["MiniPlayer"] = true, -- Music's mini player
 }
 
+-- Creates the bar items (space + bracket + padding) and mouse handlers for
+-- one workspace.  Called at init for every known workspace and again from
+-- syncBarToGlobalState when a workspace appears after startup.
+-- Caveat: items created post-startup append at the end of the bar's left
+-- section rather than in sorted order.
+local function createWorkspaceItem(workspaceid, display)
+  local space = sbar.add("item", "space." .. workspaceid, {
+    drawing = false, -- default to not showing the space -- we'll show if it has windows or is activated
+    updates = "when_shown",
+    display = display,
+    icon = {
+      font = { family = settings.font.numbers, size = 12.0 },
+      string = workspaceid,
+      padding_left = 12,
+      padding_right = 6,
+      color = colors.white,
+      highlight_color = colors.red,
+    },
+    label = {
+      padding_right = 12,
+      color = colors.grey,
+      highlight_color = colors.white,
+      font = "sketchybar-app-font:Regular:14.0",
+      y_offset = -1,
+    },
+    padding_right = 1,
+    padding_left = 1,
+    background = {
+      color = colors.bg1,
+      border_width = 1,
+      height = 26,
+      border_color = colors.black,
+    },
+    click_script = "aerospace workspace " .. workspaceid,
+  })
+
+  spaces[workspaceid] = space
+
+  -- Single item bracket for space items to achieve double border on highlight
+  local space_bracket = sbar.add("bracket", "bracket." .. workspaceid, { space.name }, {
+    display = display,
+    updates = "when_shown",
+    background = {
+      color = colors.transparent,
+      border_color = colors.bg2,
+      height = 28,
+      border_width = 2
+    }
+  })
+  brackets[workspaceid] = space_bracket
+
+  space:subscribe("mouse.entered", function(env)
+    sbar.animate("tanh", 10, function()
+      space_bracket:set({
+        background = { border_color = colors.grey }
+      })
+    end)
+  end)
+
+  space:subscribe("mouse.exited", function(env)
+    -- restore the active highlight on the focused workspace instead of
+    -- unconditionally clearing the border
+    local ws = state.workspaces[workspaceid]
+    local border = (ws and ws["active"]) and colors.grey or colors.bg2
+    sbar.animate("tanh", 10, function()
+      space_bracket:set({
+        background = { border_color = border }
+      })
+    end)
+  end)
+
+  -- Padding space
+  local padding = sbar.add("space", "space.padding." .. space.name, {
+    drawing = false,
+    updates = "when_shown",
+    display = display,
+    script = "",
+    width = settings.group_paddings,
+  })
+  space_paddings[workspaceid] = padding
+
+  return space
+end
+
 local function syncBarToGlobalState()
   -- Open question: is there any reason to first check values and only update if they are different?
   -- or is there a way to batch changes?  Maybe animate does this already?
   sbar.animate("tanh", 10, function()
     for workspaceid, workspacestate in pairs(state.workspaces) do
+      local visible = (not state.menubar_on and not workspacestate["empty"]) or workspacestate["active"]
+      if spaces[workspaceid] == nil and visible then
+        -- workspace appeared after init; create its bar items on the fly
+        createWorkspaceItem(workspaceid, workspacestate["monitor"])
+      end
       if spaces[workspaceid] == nil then
-        -- workspace appeared after init so it has no bar item; nothing to draw
-      elseif (not state.menubar_on and not workspacestate["empty"]) or workspacestate["active"] then
+        -- hidden workspace with no bar item; nothing to draw
+      elseif visible then
         -- These should be visible
         spaces[workspaceid]:set({
           drawing = true,
@@ -466,84 +555,7 @@ local function initialize()
     return {}
   end):thenCall(function(workspaces)
     for _, workspace in ipairs(workspaces or {}) do
-      local workspaceid = workspace["workspace"]
-
-      local display = getSketchyMonitorIdFrom(workspace)
-      local space = sbar.add("item", "space." .. workspaceid, {
-        drawing = false, -- default to not showing the space -- we'll show if it has windows or is activated
-        updates = "when_shown",
-        display = display,
-        icon = {
-          font = { family = settings.font.numbers, size = 12.0 },
-          string = workspaceid,
-          padding_left = 12,
-          padding_right = 6,
-          color = colors.white,
-          highlight_color = colors.red,
-        },
-        label = {
-          padding_right = 12,
-          color = colors.grey,
-          highlight_color = colors.white,
-          font = "sketchybar-app-font:Regular:14.0",
-          y_offset = -1,
-        },
-        padding_right = 1,
-        padding_left = 1,
-        background = {
-          color = colors.bg1,
-          border_width = 1,
-          height = 26,
-          border_color = colors.black,
-        },
-        click_script = "aerospace workspace " .. workspaceid,
-      })
-
-      spaces[workspaceid] = space
-
-
-      -- Single item bracket for space items to achieve double border on highlight
-      local space_bracket = sbar.add("bracket", "bracket." .. workspaceid, { space.name }, {
-        display = display,
-        updates = "when_shown",
-        background = {
-          color = colors.transparent,
-          border_color = colors.bg2,
-          height = 28,
-          border_width = 2
-        }
-      })
-      brackets[workspaceid] = space_bracket
-
-      space:subscribe("mouse.entered", function(env)
-        sbar.animate("tanh", 10, function()
-          space_bracket:set({
-            background = { border_color = colors.grey }
-          })
-        end)
-      end)
-
-      space:subscribe("mouse.exited", function(env)
-        -- restore the active highlight on the focused workspace instead of
-        -- unconditionally clearing the border
-        local ws = state.workspaces[workspaceid]
-        local border = (ws and ws["active"]) and colors.grey or colors.bg2
-        sbar.animate("tanh", 10, function()
-          space_bracket:set({
-            background = { border_color = border }
-          })
-        end)
-      end)
-
-      -- Padding space
-      local padding = sbar.add("space", "space.padding." .. space.name, {
-        drawing = false,
-        updates = "when_shown",
-        display = display,
-        script = "",
-        width = settings.group_paddings,
-      })
-      space_paddings[workspaceid] = padding
+      createWorkspaceItem(workspace["workspace"], getSketchyMonitorIdFrom(workspace))
     end
   end):thenCall(function()
     -- this chain makes sure we get async things in the right order

@@ -167,7 +167,7 @@ local function sbarExecPromise(cmd)
         end
       end
     end)
-  end):catch(onAerospaceError)
+  end)
 end
 
 local function getAllWorkspaces()
@@ -302,7 +302,7 @@ local function updateCurrentState()
       -- future update is silently rejected and the bar (and sticky windows)
       -- freeze until restart.
       state.updating = false
-      print("Error updating state: " .. (reason and dump(reason) or "unknown"))
+      onAerospaceError(reason)
       error(reason)
     end)
   end
@@ -442,8 +442,14 @@ local function initialize()
       border_color = colors.black,
     },
   })
-  getAllWorkspaces():thenCall(function(workspaces)
-    for _, workspace in ipairs(workspaces) do
+  getAllWorkspaces():catch(function(reason)
+    -- aerospace down at startup: show the error item, then continue with zero
+    -- workspaces so the subscriptions below still register and the
+    -- aerospace_started event can recover the bar later
+    onAerospaceError(reason)
+    return {}
+  end):thenCall(function(workspaces)
+    for _, workspace in ipairs(workspaces or {}) do
       local workspaceid = workspace["workspace"]
 
       local display = getSketchyMonitorIdFrom(workspace)
@@ -614,7 +620,10 @@ local function initialize()
     spaces_indicator:subscribe("mouse.clicked", function(_)
       sbar.trigger("swap_menus_and_spaces")
     end)
-  end):thenCall(getFocusedWorkspace):thenCall(function(focused)
+  end):thenCall(function()
+    -- a failure here must not skip the first sync at the end of the chain
+    return getFocusedWorkspace():catch(function() return nil end)
+  end):thenCall(function(focused)
     -- learn where the user actually is before the first sticky-window sync;
     -- otherwise sticky windows get moved to a workspace that doesn't exist
     if focused and focused[1] then

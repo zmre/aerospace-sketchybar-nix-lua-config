@@ -24,6 +24,16 @@
           (final: prev: {
             sketchybar = prev.sketchybar.overrideAttrs (oldAttrs: {
               src = inputs.sketchybar;
+              # Workaround for cctools ld crashing on Darwin (nixpkgs#540408):
+              # link with LLVM's ld64.lld instead. TODO: Drop once nixpkgs ships a fix.
+              nativeBuildInputs =
+                (oldAttrs.nativeBuildInputs or [])
+                ++ prev.lib.optionals prev.stdenv.hostPlatform.isDarwin [prev.llvmPackages.lld];
+              env =
+                (oldAttrs.env or {})
+                // prev.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
+                  NIX_CFLAGS_LINK = "-fuse-ld=lld";
+                };
             });
           })
         ];

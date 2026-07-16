@@ -145,6 +145,13 @@ local function populate()
   end)
 end
 
+-- Track the previous `waiting` count so the attention flash fires only on the
+-- 0 -> >0 edge. `flash`/`bracket` are assigned once the bracket item exists at
+-- the bottom of the file; forward-declared here so refresh() can reference them.
+local prev_waiting = 0
+local bracket
+local flash
+
 -- Bar icon + count.
 local function refresh()
   sbar.exec(fleet_cmd("--counts"), function(out)
@@ -156,6 +163,7 @@ local function refresh()
 
     if total == 0 then
       claude:set({ drawing = false, popup = { drawing = false } })
+      prev_waiting = 0
       return
     end
 
@@ -172,6 +180,10 @@ local function refresh()
     end
 
     claude:set({ drawing = true, label = { string = label, color = color } })
+
+    -- Flash the widget when prompts first start waiting on attention.
+    if prev_waiting == 0 and waiting > 0 then flash() end
+    prev_waiting = waiting
   end)
 end
 
@@ -183,9 +195,33 @@ claude:subscribe("mouse.clicked", function(env)
   claude:set({ popup = { drawing = "toggle" } })
 end)
 
-sbar.add("bracket", "widgets.claude.bracket", { claude.name }, {
+bracket = sbar.add("bracket", "widgets.claude.bracket", { claude.name }, {
   background = { color = colors.bg1 },
 })
+
+-- Pulse the widget background between its resting color and red a couple of
+-- times to catch the eye when instances first start waiting on a permission
+-- prompt. Chained via sbar.delay since sbar.animate only runs one direction per
+-- call. One-shot per 0 -> >0 edge (see refresh), so it never nags while prompts
+-- pile up; the steady orange icon remains the persistent "still waiting" cue.
+local function pulse(n)
+  if n <= 0 then
+    sbar.animate("tanh", 12, function()
+      bracket:set({ background = { color = colors.bg1 } })
+    end)
+    return
+  end
+  sbar.animate("tanh", 10, function()
+    bracket:set({ background = { color = colors.red } })
+  end)
+  sbar.delay(0.3, function()
+    sbar.animate("tanh", 10, function()
+      bracket:set({ background = { color = colors.bg1 } })
+    end)
+    sbar.delay(0.3, function() pulse(n - 1) end)
+  end)
+end
+flash = function() pulse(2) end
 
 sbar.add("item", "widgets.claude.padding", {
   position = "right",

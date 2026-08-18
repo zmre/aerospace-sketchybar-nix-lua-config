@@ -44,6 +44,13 @@
         pname = "sbar";
         version = "1";
         src = inputs.sbarlua;
+        # SbarLua never calls luaL_unref, so every sbar.exec(cmd, fn) and
+        # sbar.delay(t, fn) pins a lua registry slot plus that closure and its
+        # upvalues for the life of the process.  With a 3s polling widget that
+        # is ~28k leaked closures a day, and GC cost grows with uptime.
+        # Upstream is effectively dormant (one commit in ~24 months, several
+        # bugfix PRs sitting unreviewed), so patch it here.
+        patches = [./patches/sbarlua-release-oneshot-callback-refs.patch];
         installPhase = ''
           mkdir -p $out/lib/lua/5.5
           cp bin/sketchybar.so $out/lib/lua/5.5/

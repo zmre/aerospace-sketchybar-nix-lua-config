@@ -159,49 +159,56 @@ local function createWorkspaceItem(workspaceid, display)
   return space
 end
 
-local function syncBarToGlobalState()
-  -- Open question: is there any reason to first check values and only update if they are different?
-  -- or is there a way to batch changes?  Maybe animate does this already?
-  sbar.animate("tanh", 10, function()
-    for workspaceid, workspacestate in pairs(state.workspaces) do
-      local visible = (not state.menubar_on and not workspacestate["empty"]) or workspacestate["active"]
-      if spaces[workspaceid] == nil and visible then
-        -- workspace appeared after init; create its bar items on the fly
-        createWorkspaceItem(workspaceid, workspacestate["monitor"])
-      end
-      if spaces[workspaceid] == nil then
-        -- hidden workspace with no bar item; nothing to draw
-      elseif visible then
-        -- These should be visible
-        spaces[workspaceid]:set({
-          drawing = true,
-          display = workspacestate["monitor"],
-          label = {
-            string = workspacestate["appicons"],
-            highlight = workspacestate["active"],
-          },
-          icon = {
-            highlight = workspacestate["active"],
-          },
-          background = { border_color = workspacestate["active"] and colors.black or colors.bg2 }
-        })
-        space_paddings[workspaceid]:set({ drawing = true })
-        brackets[workspaceid]:set({
-          drawing = true,
-          background = { border_color = workspacestate["active"] and colors.grey or colors.bg2 }
-        })
-      else
-        -- These should be hidden
-        spaces[workspaceid]:set({
-          drawing = false,
-          display = workspacestate["monitor"],
-          label = workspacestate["appicons"],
-        })
-        space_paddings[workspaceid]:set({ drawing = false })
-        brackets[workspaceid]:set({ drawing = false })
-      end
+local function paintBarFromState()
+  for workspaceid, workspacestate in pairs(state.workspaces) do
+    local visible = (not state.menubar_on and not workspacestate["empty"]) or workspacestate["active"]
+    if spaces[workspaceid] == nil and visible then
+      -- workspace appeared after init; create its bar items on the fly
+      createWorkspaceItem(workspaceid, workspacestate["monitor"])
     end
-  end)
+    if spaces[workspaceid] == nil then
+      -- hidden workspace with no bar item; nothing to draw
+    elseif visible then
+      -- These should be visible
+      spaces[workspaceid]:set({
+        drawing = true,
+        display = workspacestate["monitor"],
+        label = {
+          string = workspacestate["appicons"],
+          highlight = workspacestate["active"],
+        },
+        icon = {
+          highlight = workspacestate["active"],
+        },
+        background = { border_color = workspacestate["active"] and colors.black or colors.bg2 }
+      })
+      space_paddings[workspaceid]:set({ drawing = true })
+      brackets[workspaceid]:set({
+        drawing = true,
+        background = { border_color = workspacestate["active"] and colors.grey or colors.bg2 }
+      })
+    else
+      -- These should be hidden
+      spaces[workspaceid]:set({
+        drawing = false,
+        display = workspacestate["monitor"],
+        label = workspacestate["appicons"],
+      })
+      space_paddings[workspaceid]:set({ drawing = false })
+      brackets[workspaceid]:set({ drawing = false })
+    end
+  end
+end
+
+-- Pass animated = false to snap instead of tween.  Callers batch either way:
+-- sbar.animate opens its own transaction, and every other path into here runs
+-- inside an exec or delay callback, both of which SbarLua already wraps in one.
+local function syncBarToGlobalState(animated)
+  if animated == false then
+    paintBarFromState()
+  else
+    sbar.animate("tanh", 10, paintBarFromState)
+  end
 end
 
 local function onAerospaceError(reason)
@@ -210,8 +217,8 @@ local function onAerospaceError(reason)
   -- NOTE: do not touch state.updating here.  This runs for failures of any
   -- aerospace command, including ones outside the state-update chain, and an
   -- early release would let a second update overlap the one still in flight.
-  -- The lock is released only by updateCurrentState (success or catch), or
-  -- stolen by updateCurrentStateAndSync once its timestamp goes stale.
+  -- The lock is released only by updateCurrentState (success or catch), or by
+  -- updateLockIsHeld once the outstanding exec child is known to be dead.
 
   if errorMessageItem ~= nil then
     -- Manual set of error string on error menu item
@@ -230,21 +237,92 @@ local function onAerospaceError(reason)
   syncBarToGlobalState()
 end
 
--- Function below is an awful hack, but the aerospace monitor ids and the sketchybar monitorids don't line up
--- They both seem to get the primary monitor as 1 if you use aerospace's alternate monitor-appkit-nsscreen-screens-id
--- field, which means in a dual monitor setup they'll pretty much always work out right. But in a three monitor setup,
--- they diverge -- or they can diverge.  They do for me.  So the overrides live in
--- settings.monitor_name_to_sketchybar_id.
--- See: https://github.com/nikitabobko/AeroSpace/issues/336 which is closed/resolved but compatibility is still awful
+-- Current monitor arrangement, as sketchybar sees it.
+--
+-- An item's `display = N` is stored as the bitmask `1 << N` and matched against
+-- each bar's arrangement id (SketchyBar bar_item.c:1172, bar.c:11), and those
+-- arrangement ids come straight from `display_arrangement` (bar_manager.c:593,
+-- 615).  So `display =` means "arrangement position", which renumbers whenever
+-- a monitor is added, removed, or dragged around in System Settings.  Nothing
+-- about it is stable across a dock event.
+--
+-- signature stays nil until the first successful query; until then we have no
+-- idea what exists and validation is skipped rather than guessed at.
+local displays = {
+  valid_ids = {},
+  signature = nil,
+}
+
+-- sbar.query is a synchronous mach roundtrip that does not fork and does not
+-- touch aerospace, so unlike every other probe in this file it still answers
+-- while aerospace is wedged mid-relayout.  That is exactly what we need to key
+-- display handling off of.  It is also safe to call during config load: query
+-- notices an open transaction, commits it, sends, and reopens it
+-- (SbarLua sketchybar.c:392-396).
+local function readDisplays()
+  local ok, result = pcall(sbar.query, "displays")
+  if not ok or type(result) ~= "table" then
+    -- The failure mode here is not an exception: when sketchybar doesn't answer
+    -- in time, SbarLua leaves the argument on the stack and we get the string
+    -- "displays" back instead of a table.  Its receive timeout is 1s, so this
+    -- means sketchybar's main thread is busy -- which during a dock event means
+    -- it is mid bar-destroy-and-recreate.  Treat it as "ask again shortly",
+    -- never as "nothing changed".
+    return nil
+  end
+  local valid_ids = {}
+  local parts = {}
+  for _, display in ipairs(result) do
+    local id = tonumber(display["arrangement-id"])
+    if id then
+      valid_ids[id] = true
+      -- key the signature on UUID, not arrangement id or count: swapping one
+      -- monitor for another keeps the count identical but is still a change
+      parts[#parts + 1] = id .. ":" .. tostring(display["UUID"])
+    end
+  end
+  if #parts == 0 then
+    return nil
+  end
+  return { valid_ids = valid_ids, signature = table.concat(parts, ",") }
+end
+
+-- Returns "changed", "unchanged", or "failed".  These have to stay distinct:
+-- collapsing "failed" into "unchanged" is what made an unplug take ~15s to
+-- settle, because the first probe landed while sketchybar was too busy to
+-- answer and the retry never happened.
+local function refreshDisplays()
+  local current = readDisplays()
+  if current == nil then
+    return "failed"
+  end
+  local changed = displays.signature ~= nil and displays.signature ~= current.signature
+  displays.valid_ids = current.valid_ids
+  displays.signature = current.signature
+  return changed and "changed" or "unchanged"
+end
+
+-- aerospace monitor ids and sketchybar display ids are different numbering
+-- schemes and have historically disagreed (AeroSpace issue #336).  Measured on
+-- this hardware under aerospace 0.21.3, `monitor-appkit-nsscreen-screens-id`
+-- now matches sketchybar's arrangement id exactly on all three monitors, which
+-- is what upstream recommends -- so that field is the primary source and
+-- settings.monitor_name_to_sketchybar_id exists only as an escape hatch if
+-- they ever drift apart again.
 local function getSketchyMonitorIdFrom(objWithMonitorInfo)
   local mapped = settings.monitor_name_to_sketchybar_id[objWithMonitorInfo["monitor-name"] or ""]
-  if mapped then
-    return mapped
+  local id = tonumber(mapped)
+      or tonumber(objWithMonitorInfo["monitor-appkit-nsscreen-screens-id"])
+      or tonumber(objWithMonitorInfo["monitor-id"])
+      or 1
+  -- Unplugging renumbers everything, and aerospace will happily keep reporting
+  -- a workspace on a monitor sketchybar no longer has.  An item assigned to a
+  -- display that doesn't exist is silently never drawn, so land it on the main
+  -- display instead of dropping the workspace off the bar entirely.
+  if displays.signature ~= nil and not displays.valid_ids[id] then
+    return 1
   end
-  if objWithMonitorInfo["monitor-appkit-nsscreen-screens-id"] then
-    return objWithMonitorInfo["monitor-appkit-nsscreen-screens-id"]
-  end
-  return objWithMonitorInfo["monitor-id"]
+  return id
 end
 
 local function sbarExecPromise(cmd)
@@ -259,24 +337,39 @@ local function sbarExecPromise(cmd)
   end)
 end
 
+local WORKSPACE_FORMAT = "%{workspace}%{monitor-appkit-nsscreen-screens-id}%{monitor-id}%{monitor-name}"
+local WINDOW_FORMAT =
+"%{window-id}%{app-name}%{window-title}%{workspace}%{monitor-id}%{monitor-appkit-nsscreen-screens-id}%{monitor-name}"
+
 local function getAllWorkspaces()
-  return sbarExecPromise(
-    "aerospace list-workspaces --all --format '%{workspace}%{monitor-appkit-nsscreen-screens-id}%{monitor-id}%{monitor-name}' --json")
-end
-
-local function getAllWindows()
-  return sbarExecPromise(
-    "aerospace list-windows --all --format '%{window-id}%{app-name}%{window-title}%{workspace}%{monitor-id}%{monitor-appkit-nsscreen-screens-id}%{monitor-name}' --json"
-  )
-end
-
-local function getVisibleWorkspaces()
-  return sbarExecPromise(
-    "aerospace list-workspaces --visible --monitor all --format '%{workspace}%{monitor-appkit-nsscreen-screens-id}%{monitor-id}%{monitor-name}' --json")
+  return sbarExecPromise("aerospace list-workspaces --all --format '" .. WORKSPACE_FORMAT .. "' --json")
 end
 
 local function getFocusedWorkspace()
   return sbarExecPromise("aerospace list-workspaces --focused --format '%{workspace}' --json")
+end
+
+-- One fork instead of three.  sbar.exec forks the whole lua process and then
+-- popen()s a shell on top of that, so fetching visible/all/windows as three
+-- separate promises cost six processes per update.  During a dock event those
+-- pile up against an aerospace daemon that is single threaded and already
+-- blocked re-laying-out every window, and the pile is what turns a display
+-- change into a multi-minute stall.
+--
+-- The three documents are wrapped into one JSON array because SbarLua runs the
+-- command output through cJSON and only hands us a lua table if the whole
+-- response parses; there is no JSON decoder available on this side to stitch
+-- delimited blobs back together.  `set -e` makes a failure in any one query
+-- fail the command as a whole, which lands on the promise's reject path just
+-- like a single failed exec did before.
+local function getAerospaceSnapshot()
+  return sbarExecPromise(table.concat({
+    "set -e",
+    "visible=$(aerospace list-workspaces --visible --monitor all --format '" .. WORKSPACE_FORMAT .. "' --json)",
+    "all=$(aerospace list-workspaces --all --format '" .. WORKSPACE_FORMAT .. "' --json)",
+    "windows=$(aerospace list-windows --all --format '" .. WINDOW_FORMAT .. "' --json)",
+    "printf '[%s,%s,%s]' \"$visible\" \"$all\" \"$windows\"",
+  }, "; "))
 end
 
 local function sendWindowToWorkspace(window_id, workspace_id)
@@ -323,11 +416,13 @@ local function getCurrentState()
     ensureWorkspace(newstate.workspaces, workspaceid)
   end
 
-  local visiblePromise = getVisibleWorkspaces()
-  local allPromise = getAllWorkspaces()
-  local appsPromise = getAllWindows()
-
-  return Promise.all({ visiblePromise, allPromise, appsPromise }):thenCall(function(values)
+  return getAerospaceSnapshot():thenCall(function(values)
+    -- A non-table here means the combined output did not parse as JSON, so
+    -- SbarLua handed back the raw string instead.  Fail loudly rather than
+    -- letting ipairs() blow up somewhere less obvious.
+    if type(values) ~= "table" or values[1] == nil then
+      error("aerospace snapshot did not parse as JSON: " .. dump(values))
+    end
     local visible, all, apps = values[1], values[2], values[3]
     -- Assign workspaces to monitors
     for _, workspace in ipairs(all) do
@@ -380,14 +475,25 @@ end
 -- The updating lock is a timestamp so it can't leak forever: if aerospace
 -- hangs and an exec callback never fires, the lock would otherwise stay held
 -- and every future update would be silently dropped until restart.
-local UPDATE_LOCK_TIMEOUT = 15 -- seconds
+--
+-- The timeout has to sit *past* SbarLua's own limit.  SbarLua arms alarm(60)
+-- in every forked exec child, so a slow `aerospace` call either reports back
+-- within 60s or is killed and never reports at all.  This used to be 15s,
+-- which meant that while aerospace was wedged we released the lock and
+-- launched a fresh batch of queries every 15s alongside children that were
+-- still alive and still queued against the same single-threaded daemon --
+-- four overlapping batches deep by the time the first one timed out.  That
+-- snowball, not the display change itself, is what made docking take minutes.
+-- At 75s there is only ever one batch in flight, and the release only happens
+-- once the outstanding child is known to be dead.
+local UPDATE_LOCK_TIMEOUT = 75 -- seconds; must exceed SbarLua's alarm(60)
 
 local function updateLockIsHeld()
   if not state.updating then
     return false
   end
   if os.time() - state.updating > UPDATE_LOCK_TIMEOUT then
-    print("Warning: state update lock is stale (held > " .. UPDATE_LOCK_TIMEOUT .. "s); stealing it")
+    print("Warning: state update lock held > " .. UPDATE_LOCK_TIMEOUT .. "s; its exec child is dead, releasing")
     return false
   end
   return true
@@ -437,18 +543,43 @@ local function updateCurrentState()
   end)
 end
 
+-- aerospace intermittently loses track of PiP windows, so a move can fail or
+-- silently no-op and leave the window still looking misplaced on the next
+-- state read -- which schedules the identical move again.  Each attempt is its
+-- own fork, and each one can itself perturb window state, so without a backoff
+-- a single untracked PiP window is enough to keep the update loop fed
+-- indefinitely.  Remember when we last tried each window and leave it alone
+-- for a while after.
+local STICKY_RETRY_SECONDS = 10
+local sticky_move_attempted_at = {} -- window-id -> os.time() of last attempt
+
 local function moveStickyToCurrentWorkspace()
   if not state.focused_workspace or state.focused_workspace == "" then
     -- we don't know where the user is yet; moving windows would be a guess
     return
   end
+  local now = os.time()
+  local still_sticky = {}
   for _, window in ipairs(state.sticky_windows) do
+    local window_id = window["window-id"]
+    still_sticky[window_id] = true
     -- if it's on an active workspace on any monitor, just leave it
     local workspacestate = state.workspaces[window["workspace"]]
     if not (workspacestate and workspacestate["active"]) then
-      -- if it isn't on an active workspace, then move it to the current
-      -- focused workspace
-      sendWindowToWorkspace(window["window-id"], state.focused_workspace)
+      local last_attempt = sticky_move_attempted_at[window_id]
+      local backed_off = last_attempt ~= nil and now - last_attempt < STICKY_RETRY_SECONDS
+      if not backed_off then
+        sticky_move_attempted_at[window_id] = now
+        -- if it isn't on an active workspace, then move it to the current
+        -- focused workspace
+        sendWindowToWorkspace(window_id, state.focused_workspace)
+      end
+    end
+  end
+  -- drop bookkeeping for windows that are gone, so this can't grow forever
+  for window_id in pairs(sticky_move_attempted_at) do
+    if not still_sticky[window_id] then
+      sticky_move_attempted_at[window_id] = nil
     end
   end
 end
@@ -480,6 +611,167 @@ local function updateCurrentStateAndSync()
       -- run any coalesced request on the failure path too, or a rejection
       -- both drops that event and strands the pending flag
       :thenCall(runPendingUpdate, runPendingUpdate)
+end
+
+-- Trailing throttle in front of updateCurrentStateAndSync.  A dock event or a
+-- burst of window moves fires dozens of triggers in a second and each one used
+-- to launch its own snapshot; this collapses them to at most one update per
+-- window.  Events that keep arriving keep it running rather than starving it,
+-- so this rate-limits without ever going quiet while things are still moving.
+--
+-- Only one timer is ever in flight -- events during the wait just set the
+-- dirty flag and the timer re-arms itself once when it fires.  (Stock SbarLua
+-- never calls luaL_unref, which made one-timer-per-event an unbounded leak;
+-- flake.nix now patches that, but one timer per burst is still the right
+-- shape and keeps us honest if the patch is ever dropped.)
+local UPDATE_DEBOUNCE_SECONDS = 0.25
+local debounce_armed = false
+local debounce_dirty = false
+local onDebounceExpired
+
+local function requestStateUpdate()
+  if debounce_armed then
+    debounce_dirty = true
+    return
+  end
+  debounce_armed = true
+  debounce_dirty = false
+  sbar.delay(UPDATE_DEBOUNCE_SECONDS, onDebounceExpired)
+end
+
+onDebounceExpired = function()
+  debounce_armed = false
+  updateCurrentStateAndSync()
+  if debounce_dirty then
+    debounce_dirty = false
+    requestStateUpdate()
+  end
+end
+
+-- Docking is a burst, not an event.  SketchyBar funnels display
+-- added/removed/moved/resized into one handler (bar_manager.c:762-768) and
+-- macOS emits several of those per physical plug, each one destroying and
+-- recreating every bar; upstream acknowledged this and never debounced it
+-- (SketchyBar issue #336).  So we wait for the arrangement to go quiet before
+-- touching anything, rather than chasing each event.
+--
+-- Unlike the state throttle above this is a true trailing debounce: we want to
+-- act exactly once, after things settle, not at a steady rate during the storm.
+--
+-- display_change also fires whenever the *active* display changes -- every time
+-- the mouse crosses monitors -- so the UUID signature comparison is what keeps
+-- normal use from triggering resyncs.  That check is one mach roundtrip and no
+-- forks, which is why it's safe to run on such a chatty event.
+local DISPLAY_SETTLE_SECONDS = 2.0
+-- A failed probe means sketchybar is still churning, so keep asking.  Bounded
+-- so a genuinely wedged sketchybar (SketchyBar #776 can stall for minutes)
+-- doesn't leave us re-arming timers forever.
+local DISPLAY_MAX_RETRIES = 8
+
+-- ...but that full budget is only worth spending when we might be missing a
+-- change.  Just after a successful read we are almost certainly seeing echoes:
+-- every event sketchybar processes calls bar_manager_poll_active_display
+-- (event.c:379-381), which re-fires display_change whenever the active display
+-- id differs from the one it last recorded -- and unplugging always changes
+-- that, including in response to the mach messages from our own repaint.  Each
+-- failed probe blocks lua for ~1s on the mach receive timeout, so grinding
+-- through 8 of them burns most of a second-by-second budget right when we want
+-- to be responsive again.  Probe once for echoes, don't grind.
+local DISPLAY_ECHO_RETRIES = 1
+local DISPLAY_ECHO_QUIET_SECONDS = 8
+local display_last_read_at = 0
+local display_settle_armed = false
+local display_settle_dirty = false
+local display_retries = 0
+local onDisplaySettled
+
+local function onDisplayChange()
+  if display_settle_armed then
+    display_settle_dirty = true
+    return
+  end
+  display_settle_armed = true
+  display_settle_dirty = false
+  sbar.delay(DISPLAY_SETTLE_SECONDS, onDisplaySettled)
+end
+
+onDisplaySettled = function()
+  display_settle_armed = false
+  if display_settle_dirty then
+    -- events still arriving; wait out another quiet window before acting
+    display_settle_dirty = false
+    onDisplayChange()
+    return
+  end
+
+  local status = refreshDisplays()
+  if status == "failed" then
+    -- Spend the full budget only when we might actually be missing something.
+    -- Within a few seconds of a good read this is almost certainly an echo of
+    -- the change we already handled, and each probe costs ~1s of blocked lua.
+    local echoing = os.time() - display_last_read_at < DISPLAY_ECHO_QUIET_SECONDS
+    local budget = echoing and DISPLAY_ECHO_RETRIES or DISPLAY_MAX_RETRIES
+    if display_retries < budget then
+      display_retries = display_retries + 1
+      print("displays not queryable yet, retry " .. display_retries .. "/" .. budget)
+      onDisplayChange()
+    else
+      if not echoing then
+        print("gave up re-reading displays after " .. budget .. " attempts")
+      end
+      display_retries = 0
+    end
+    return
+  end
+
+  display_last_read_at = os.time()
+  display_retries = 0
+  if status == "unchanged" then
+    -- active display moved, but the same monitors are still attached
+    return
+  end
+
+  print("monitor arrangement changed: " .. tostring(displays.signature))
+
+  -- Paint from cached state right now, before asking aerospace anything.
+  --
+  -- Measured on a real dock: sketchybar takes ~10s to become queryable again,
+  -- and aerospace another ~15s to answer a snapshot, because it is single
+  -- threaded and busy re-laying-out every window (AeroSpace #104).  Chaining
+  -- those serially is why the bar stayed blank for ~25s.  We don't need
+  -- aerospace for this step: a workspace sitting on a monitor that no longer
+  -- exists has to move no matter where aerospace eventually says it lives,
+  -- since an item on a detached display is silently never drawn.  So re-home
+  -- onto the live display set and repaint immediately; the snapshot below
+  -- corrects the details once aerospace can answer.
+  for _, workspacestate in pairs(state.workspaces) do
+    local monitor = tonumber(workspacestate["monitor"])
+    if monitor == nil or not displays.valid_ids[monitor] then
+      workspacestate["monitor"] = 1
+    end
+  end
+  -- Snap, don't tween.  sketchybar is still finishing its own bar rebuild here
+  -- (that's why the probe above can fail), so a 10-frame animation for every
+  -- workspace is pure extra work for a renderer that is already behind -- and
+  -- nobody sees a smooth transition on a bar that isn't on screen yet.
+  syncBarToGlobalState(false)
+
+  -- Display ids may have renumbered even where the workspace state compares
+  -- equal, so make sure the follow-up snapshot repaints regardless.
+  state.bar_dirty = true
+  requestStateUpdate()
+end
+
+local function onSystemWoke()
+  -- Waking is the one case where the arrangement can change without a clean
+  -- display_change: SketchyBar itself notes that "the system wake notification
+  -- precedes the display layout changes" and queues a second wake 500ms later
+  -- to compensate (bar_manager.c:1026-1038), and docking while the lid is shut
+  -- lands entirely inside that gap.  Run the settle path so the arrangement is
+  -- re-read either way, and request a state update regardless, since windows
+  -- move around while we're asleep whether or not monitors did.
+  onDisplayChange()
+  requestStateUpdate()
 end
 
 local function highlightWorkspace(space, space_padding, space_bracket, selected)
@@ -536,7 +828,7 @@ local function onActiveWorkspaceChange(env)
     end)
   end
 
-  updateCurrentStateAndSync()
+  requestStateUpdate()
 end
 
 local function hideAerospaceError()
@@ -545,12 +837,17 @@ local function hideAerospaceError()
       drawing = false,
     })
   end
-  updateCurrentStateAndSync()
+  requestStateUpdate()
 end
 
 local function initialize()
   sbar.add("event", "aerospace_started")
   sbar.add("event", "swap_menus_and_spaces")
+
+  -- Learn the arrangement before any items are created, so the very first
+  -- createWorkspaceItem already validates its display id instead of assigning
+  -- workspaces to monitors that aren't attached.
+  refreshDisplays()
 
   errorMessageItem = sbar.add("item", "error", {
     drawing = false,
@@ -623,13 +920,27 @@ local function initialize()
     -- space_windows_change triggers when a window is created or destroyed
     -- unfortunately, we don't know enough to know what was added or deleted
     -- so we have to go through all non-empty workspaces
-    space_window_observer:subscribe("space_windows_change", updateCurrentStateAndSync)
+    space_window_observer:subscribe("space_windows_change", requestStateUpdate)
 
-    space_window_observer:subscribe("system_woke", updateCurrentStateAndSync)
+    space_window_observer:subscribe("system_woke", onSystemWoke)
 
-    -- This is sort of a gratuitous call to make sure aerospace is still running any time we change apps
-    -- just highlight all the visible workspaces
-    space_window_observer:subscribe("front_app_switched", updateCurrentStateAndSync)
+    -- Fires on monitor connect/disconnect as well as active-display changes.
+    -- The docs only mention the latter and issue #448 (asking for a display
+    -- count event) was closed "not planned", which makes this look unusable --
+    -- but the hotplug path really does reach subscribers:
+    -- event_display_added/removed -> bar_manager_display_added/removed
+    -- (bar_manager.c:762-768) -> bar_manager_display_changed ->
+    -- bar_manager_handle_display_change (:778) -> custom_events_trigger(
+    -- COMMAND_SUBSCRIBE_DISPLAY_CHANGE) (:1008).
+    space_window_observer:subscribe("display_change", onDisplayChange)
+
+    -- Deliberately NOT subscribed to front_app_switched.  It used to run a
+    -- full state snapshot on every app switch as a liveness check on
+    -- aerospace, but it fires constantly -- and hardest exactly when docking
+    -- shuffles windows between monitors, which is when aerospace is least able
+    -- to answer.  aerospace_workspace_change and space_windows_change already
+    -- cover every case where the bar's contents actually change; liveness is
+    -- reported by the error item instead.
 
     -- only displayed and updated when there's already been an error
     -- hideAerospaceError already triggers a full state update and sync

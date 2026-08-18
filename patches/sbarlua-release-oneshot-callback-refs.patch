@@ -1,0 +1,30 @@
+--- a/src/sketchybar.c
++++ b/src/sketchybar.c
+@@ -250,6 +250,15 @@
+       printf("[!] Lua: %s\n", lua_tostring(g_state, -1));
+     }
+     transaction_commit(g_state);
++
++    // Release the registry slot pinned by exec()'s luaL_ref.  Without this,
++    // every sbar.exec(cmd, fn) leaks a slot plus the closure and all of its
++    // upvalues for the life of the process: a widget polling on a few-second
++    // timer with an inline callback grows the registry without bound, and GC
++    // cost rises with uptime.  Safe to release here because this ref is
++    // one-shot -- unlike the subscribe() refs, which live in g_callbacks and
++    // are reused on every event.
++    luaL_unref(g_state, LUA_REGISTRYINDEX, callback_ref);
+     return;
+   }
+   env env = message;
+@@ -775,6 +784,11 @@
+   }
+ 
+   transaction_commit(g_state);
++
++  // Same one-shot release as the exec path.  The CFRunLoopTimer created in
++  // delay() is non-repeating, so this callback can never fire again and the
++  // ref would otherwise be pinned forever.
++  luaL_unref(g_state, LUA_REGISTRYINDEX, callback_ref);
+ }
+ 
+ int delay(lua_State* state) {

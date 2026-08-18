@@ -24,7 +24,9 @@ end
 
 local function restart_network_load(iface)
   sbar.exec(
-    "killall network_load >/dev/null; " ..
+    -- 2>&1 too: with nothing to kill, killall writes "No matching processes
+    -- belonging to you were found" to stderr and it pollutes the sketchybar log
+    "killall network_load >/dev/null 2>&1; " ..
     base_dir .. "/helpers/event_providers/network_load/bin/network_load " .. iface .. " network_update 2.0"
   )
 end

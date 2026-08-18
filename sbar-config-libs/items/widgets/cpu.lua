@@ -4,7 +4,11 @@ local settings = require("sbar-config-libs/settings")
 
 -- Execute the event provider binary which provides the event "cpu_update" for
 -- the cpu load data, which is fired every 2.0 seconds.
-sbar.exec("killall cpu_load >/dev/null; " .. base_dir .. "/helpers/event_providers/cpu_load/bin/cpu_load cpu_update 2.0")
+-- 2>&1 as well as >/dev/null: on a clean start killall has nothing to kill and
+-- writes "No matching processes belonging to you were found" to stderr, which
+-- lands in the sketchybar log and reads like a real failure.
+sbar.exec("killall cpu_load >/dev/null 2>&1; " ..
+  base_dir .. "/helpers/event_providers/cpu_load/bin/cpu_load cpu_update 2.0")
 
 local cpu = sbar.add("graph", "widgets.cpu", 42, {
   position = "right",

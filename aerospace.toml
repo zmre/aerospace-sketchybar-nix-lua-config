@@ -282,6 +282,7 @@ outer.right =      [ {monitor."built-in" = 6}, 10 ]
 
 B = ['LG Ultra HD', 'built-in'] # browser to big vertical secondary monitor
 Y = ['LG Ultra HD', 'built-in'] # youtube to big vertical secondary monitor
+O = ['LG Ultra HD', 'built-in'] # youtube to big vertical secondary monitor
 V = ['RODE_RCV', 'built-in']    # video meetings to teleprompter
 
 

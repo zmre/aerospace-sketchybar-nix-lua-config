@@ -78,6 +78,10 @@ check-further-callbacks = false
 run = ['layout floating']
 
 [[on-window-detected]]
+if.app-name-regex-substring = 'IronstashApp'
+run = ['layout floating']
+
+[[on-window-detected]]
 if.app-id = 'com.apple.Music'
 run = ['layout tiling', 'move-node-to-workspace S']
 
